@@ -1,0 +1,44 @@
+{
+  "family": "plcgallery",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/plcgallery-task",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "containerDefinitions": [
+    {
+      "name": "web",
+      "image": "ACCOUNT_ID.dkr.ecr.ap-northeast-2.amazonaws.com/plcgallery:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "protocol": "tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 10
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/plcgallery",
+          "awslogs-region": "ap-northeast-2",
+          "awslogs-stream-prefix": "web",
+          "awslogs-create-group": "true"
+        }
+      },
+      "readonlyRootFilesystem": false
+    }
+  ]
+}
