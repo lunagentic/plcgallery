@@ -475,35 +475,26 @@ const ThumbStrip = styled.div`
   backdrop-filter: blur(12px);
 `;
 
-/** Comment toggle: pinned at the right edge but ~88px below the vertical
- *  centre so it never overlaps the right NavBtn arrow (which is centred
- *  vertically at 50% with a 52px height). */
-const CommentToggle = styled.button<{ open: boolean }>`
-  position: absolute;
-  top: calc(50% + 50px);
-  right: ${({ open }) => (open ? '396px' : '20px')};
-  z-index: 14;
-  width: 44px;
-  height: 44px;
+/** Inline comment toggle: lives inside the BottomBar next to the like button. */
+const CommentBtn = styled.button<{ active: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
   border-radius: 999px;
+  background: ${({ active }) => (active ? 'rgba(0, 0, 0, 0.08)' : 'transparent')};
   border: 0;
-  background: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-weight: 700;
   color: #1a1714;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.22);
   cursor: pointer;
-  transition: right 280ms cubic-bezier(0.2, 0.85, 0.25, 1), background 0.15s ease;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.15s ease, transform 0.18s cubic-bezier(0.2, 0.85, 0.25, 1);
   &:hover {
-    background: #fff;
+    background: rgba(0, 0, 0, 0.06);
   }
-  @media (max-width: 900px) {
-    top: calc(50% + 42px);
-    width: 40px;
-    height: 40px;
-  }
-  @media (max-width: 700px) {
-    right: ${({ open }) => (open ? 'calc(100vw - 16px)' : '12px')};
+  &:active {
+    transform: scale(0.92);
   }
 `;
 
@@ -1133,6 +1124,17 @@ export function Viewer({
           {isLiked ? <HeartFilledIcon /> : <HeartOutlineIcon />}
           {post.likes_count}
         </LikeBtn>
+        <CommentBtn
+          type="button"
+          active={commentsOpen}
+          onClick={() => setCommentsOpen((v) => !v)}
+          title={commentsOpen ? '댓글 닫기' : '댓글 보기'}
+          aria-label="댓글"
+          aria-expanded={commentsOpen}
+        >
+          <ChatIcon />
+          {totalComments}
+        </CommentBtn>
         <CopyBtn onClick={copyPanelContent} type="button" title="내용 복사">
           <ClipboardIcon /> 복사
         </CopyBtn>
@@ -1254,17 +1256,6 @@ export function Viewer({
           </EditSheet>
         </EditBackdrop>
       )}
-
-      <CommentToggle
-        type="button"
-        open={commentsOpen}
-        onClick={() => setCommentsOpen((v) => !v)}
-        title={commentsOpen ? '댓글 닫기' : '댓글 보기'}
-        aria-label="댓글"
-        aria-expanded={commentsOpen}
-      >
-        {commentsOpen ? <CloseIcon /> : <ChatIcon />}
-      </CommentToggle>
 
       <CommentPanel open={commentsOpen} aria-hidden={!commentsOpen}>
         <CommentHeader>
