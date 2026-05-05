@@ -2,7 +2,13 @@ import styled from '@emotion/styled';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/store/authStore';
-import { useTeamPosts, useTogglePostLike, useDeletePost } from '@/hooks/usePosts';
+import {
+  useTeamPosts,
+  useTogglePostLike,
+  useDeletePost,
+  useUpdatePost,
+  useMyLikedPostIds,
+} from '@/hooks/usePosts';
 import { Button } from '@/components/ui/Button';
 import { useNavigate } from 'react-router-dom';
 import { PostTile } from '@/components/PostTile';
@@ -130,6 +136,8 @@ export default function TeamboardPage() {
   const [viewerIdx, setViewerIdx] = useState<number | null>(null);
   const toggleLike = useTogglePostLike();
   const deletePost = useDeletePost();
+  const updatePost = useUpdatePost();
+  const { data: likedPostIds } = useMyLikedPostIds();
   const isAdmin =
     typeof window !== 'undefined' && !!localStorage.getItem('plc-admin-code');
 
@@ -207,7 +215,9 @@ export default function TeamboardPage() {
           onIndexChange={setViewerIdx}
           onClose={() => setViewerIdx(null)}
           onToggleLike={(id) => toggleLike.mutate(id)}
+          likedPostIds={likedPostIds}
           onDeletePost={(id) => deletePost.mutateAsync(id).then(() => undefined)}
+          onUpdatePost={(input) => updatePost.mutateAsync(input).then(() => undefined)}
           currentUserId={session?.user.id ?? null}
           isTeamLeader={membership?.role === 'leader'}
           isAdmin={isAdmin}

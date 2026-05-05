@@ -1,8 +1,9 @@
 import styled from '@emotion/styled';
+import type { MouseEvent } from 'react';
 import { getPublicImageUrl } from '@/lib/supabase';
 import type { PostWithAuthor } from '@/hooks/usePosts';
 
-const Card = styled.div<{ delay: number; spanWide: boolean }>`
+const Card = styled.div<{ delay: number }>`
   display: flex;
   flex-direction: column;
   text-align: left;
@@ -10,7 +11,6 @@ const Card = styled.div<{ delay: number; spanWide: boolean }>`
   transform: translateY(12px);
   animation: riseTile 0.6s ease-out forwards;
   animation-delay: ${({ delay }) => delay}ms;
-  grid-column: ${({ spanWide }) => (spanWide ? 'span 2' : 'auto')};
 
   @keyframes riseTile {
     to {
@@ -18,13 +18,9 @@ const Card = styled.div<{ delay: number; spanWide: boolean }>`
       transform: translateY(0);
     }
   }
-
-  @media (max-width: 900px) {
-    grid-column: auto;
-  }
 `;
 
-const Tile = styled.button<{ ratio: string }>`
+const Tile = styled.button`
   position: relative;
   overflow: hidden;
   background: ${({ theme }) => theme.surface};
@@ -32,27 +28,13 @@ const Tile = styled.button<{ ratio: string }>`
   padding: 0;
   border: 0;
   border-radius: 14px;
-
-  aspect-ratio: ${({ ratio }) => {
-    switch (ratio) {
-      case '1':
-      case '1:1':
-        return '1 / 1';
-      case '3:4':
-        return '3 / 4';
-      case '16:9':
-        return '16 / 9';
-      case '4:3':
-      default:
-        return '4 / 3';
-    }
-  }};
+  aspect-ratio: 4 / 3;
 `;
 
 const Img = styled.img`
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   background: rgba(0, 0, 0, 0.04);
   display: block;
   transition: transform 0.6s ease;
@@ -100,33 +82,24 @@ const Tag = styled.span`
   color: #fff;
 `;
 
-const Stats = styled.div`
+const BundleBadge = styled.span`
   position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  gap: 6px;
-  opacity: 0;
-  transform: translateY(-4px);
-  transition: all 0.25s ease;
-  ${Tile}:hover & {
-    opacity: 1;
-    transform: translateY(0);
-  }
-`;
-
-const StatChip = styled.span`
-  background: rgba(0, 0, 0, 0.55);
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
   color: #fff;
   padding: 5px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  z-index: 3;
+  pointer-events: none;
 `;
+
 
 const Footer = styled.div`
   padding: 10px 4px 4px;
@@ -147,21 +120,20 @@ const PostTitle = styled.div`
   overflow: hidden;
 `;
 
-const TeamLink = styled.button`
+const TeamLine = styled.div<{ clickable: boolean }>`
   align-self: flex-start;
-  background: transparent;
-  border: 0;
-  padding: 0;
   font-size: 12px;
   font-weight: 600;
   color: ${({ theme }) => theme.textMuted};
-  cursor: pointer;
+  cursor: ${({ clickable }) => (clickable ? 'pointer' : 'default')};
   display: inline-flex;
   align-items: center;
   gap: 4px;
   &:hover {
-    color: ${({ theme }) => theme.text};
-    text-decoration: underline;
+    ${({ clickable, theme }) =>
+      clickable
+        ? `color: ${theme.text}; text-decoration: underline;`
+        : ''}
   }
 `;
 
@@ -243,24 +215,22 @@ export function PostTile({
   onTeamClick,
 }: Props) {
   const url = getPublicImageUrl(post.image_path);
-  const ratio = post.image_ratio ?? '4:3';
   const stage = post.stage_bg ?? '#F2EFE9';
   const displayAuthor = authorName ?? post.author_nickname ?? '작가 미상';
   const initial = displayAuthor.charAt(0).toUpperCase();
 
+  const bundleSize = post.image_paths?.length ?? 0;
+  const isBundle = bundleSize > 1;
+
   return (
-    <Card delay={index * 40} spanWide={ratio === '16:9'}>
-      <Tile ratio={ratio} onClick={onClick} aria-label={post.title}>
+    <Card delay={index * 40}>
+      <Tile onClick={onClick} aria-label={post.title}>
         {url ? (
           <Img src={url} alt={post.title} loading="lazy" />
         ) : (
           <EmptyStage bg={stage} />
         )}
-        <Stats>
-          {post.image_paths && post.image_paths.length > 1 && (
-            <StatChip>📚 +{post.image_paths.length - 1}</StatChip>
-          )}
-        </Stats>
+        {isBundle && <BundleBadge>+{bundleSize - 1}</BundleBadge>}
         <Overlay>
           {post.tags && post.tags.length > 0 && (
             <TagRow>
@@ -274,9 +244,21 @@ export function PostTile({
       <Footer>
         <PostTitle>{post.title}</PostTitle>
         {teamName && (
-          <TeamLink type="button" onClick={onTeamClick} title={`${teamName} 팀보드 보기`}>
-            {teamName} →
-          </TeamLink>
+          <TeamLine
+            as={onTeamClick ? 'button' : 'div'}
+            clickable={!!onTeamClick}
+            onClick={
+              onTeamClick
+                ? (e: MouseEvent) => {
+                    e.stopPropagation();
+                    onTeamClick();
+                  }
+                : undefined
+            }
+            title={onTeamClick ? `${teamName} 팀보드 보기` : teamName}
+          >
+            {teamName}
+          </TeamLine>
         )}
         <MetaRow>
           <Author>

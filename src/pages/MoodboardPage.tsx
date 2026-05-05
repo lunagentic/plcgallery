@@ -3,7 +3,13 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { useMoodboard } from '@/hooks/useMoodboards';
-import { useMoodboardPosts, useTogglePostLike, useDeletePost } from '@/hooks/usePosts';
+import {
+  useMoodboardPosts,
+  useTogglePostLike,
+  useDeletePost,
+  useUpdatePost,
+  useMyLikedPostIds,
+} from '@/hooks/usePosts';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/Button';
 import { Viewer } from '@/components/Viewer';
@@ -118,6 +124,8 @@ export default function MoodboardPage() {
   const [viewerIdx, setViewerIdx] = useState<number | null>(null);
   const toggleLike = useTogglePostLike();
   const deletePost = useDeletePost();
+  const updatePost = useUpdatePost();
+  const { data: likedPostIds } = useMyLikedPostIds();
   const session = useAuthStore((s) => s.session);
   const membership = useAuthStore((s) => s.membership);
   const isAdmin =
@@ -177,7 +185,9 @@ export default function MoodboardPage() {
           onIndexChange={setViewerIdx}
           onClose={() => setViewerIdx(null)}
           onToggleLike={(id) => toggleLike.mutate(id)}
+          likedPostIds={likedPostIds}
           onDeletePost={(id) => deletePost.mutateAsync(id).then(() => undefined)}
+          onUpdatePost={(input) => updatePost.mutateAsync(input).then(() => undefined)}
           currentUserId={session?.user.id ?? null}
           isTeamLeader={membership?.role === 'leader'}
           isAdmin={isAdmin}

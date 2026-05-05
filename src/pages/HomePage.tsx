@@ -2,10 +2,16 @@ import styled from '@emotion/styled';
 import { Trans, useTranslation } from 'react-i18next';
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMoodboards, type MoodboardWithCreator } from '@/hooks/useMoodboards';
-import { useMoodboardCovers } from '@/hooks/useMoodboardCovers';
-import { usePostsByCategory, useTogglePostLike, useDeletePost } from '@/hooks/usePosts';
-import { MoodboardCard } from '@/components/MoodboardCard';
+import { useMoodboards } from '@/hooks/useMoodboards';
+import {
+  useAllVisiblePosts,
+  usePostsByCategory,
+  useTogglePostLike,
+  useDeletePost,
+  useUpdatePost,
+  useMyLikedPostIds,
+  type PostWithAuthor,
+} from '@/hooks/usePosts';
 import { PostTile } from '@/components/PostTile';
 import { Viewer } from '@/components/Viewer';
 import { Button } from '@/components/ui/Button';
@@ -156,26 +162,6 @@ const MoreLink = styled.button`
   }
 `;
 
-const Gallery = styled.div`
-  /* CSS columns masonry */
-  column-count: 4;
-  column-gap: 24px;
-  @media (max-width: 1200px) {
-    column-count: 3;
-  }
-  @media (max-width: 900px) {
-    column-count: 2;
-  }
-  @media (max-width: 600px) {
-    column-count: 1;
-  }
-  & > * {
-    break-inside: avoid;
-    margin-bottom: 24px;
-    display: block;
-  }
-`;
-
 const PostGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -220,49 +206,21 @@ const CtaRow = styled.div`
   gap: 8px;
 `;
 
-interface CoverData {
-  counts: Record<string, number>;
-  covers: Record<string, string[]>;
-}
-
-function MoodboardGrid({
-  items,
-  coverData,
-  startIndex = 0,
-}: {
-  items: MoodboardWithCreator[];
-  coverData: CoverData | undefined;
-  startIndex?: number;
-}) {
-  return (
-    <Gallery>
-      {items.map((mb, idx) => (
-        <MoodboardCard
-          key={mb.id}
-          mb={mb}
-          index={startIndex + idx}
-          featured={startIndex + idx === 0}
-          teamName={mb.team_name ?? undefined}
-          nickname={mb.creator_nickname ?? undefined}
-          nickInitial={mb.creator_nickname?.charAt(0).toUpperCase()}
-          nickColor={mb.team_color ?? undefined}
-          count={coverData?.counts[mb.id] ?? 0}
-          coverImages={coverData?.covers[mb.id] ?? []}
-        />
-      ))}
-    </Gallery>
-  );
-}
-
 export default function HomePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: moodboards = [], isLoading } = useMoodboards();
-  const moodboardIds = useMemo(() => moodboards.map((m) => m.id), [moodboards]);
-  const { data: coverData } = useMoodboardCovers(moodboardIds);
+  const { data: moodboards = [], isLoading: moodboardsLoading } = useMoodboards();
   const [filter, setFilter] = useState<FilterKey>('all');
   const [createOpen, setCreateOpen] = useState(false);
-  const [viewerIdx, setViewerIdx] = useState<number | null>(null);
+  // Track which list the viewer is browsing — by category section in the
+  // 'all' view, or by the active filter in the chip view. Storing the key
+  // (not the list itself) lets the viewer auto-refresh when the underlying
+  // query refetches (e.g. after a like or delete).
+  const [viewer, setViewer] = useState<
+    { source: 'category-section'; cat: MoodboardCategory; idx: number }
+    | { source: 'category-filter'; idx: number }
+    | null
+  >(null);
 
   const session = useAuthStore((s) => s.session);
   const membership = useAuthStore((s) => s.membership);
@@ -270,16 +228,29 @@ export default function HomePage() {
     typeof window !== 'undefined' && !!localStorage.getItem('plc-admin-code');
   const toggleLike = useTogglePostLike();
   const deletePost = useDeletePost();
+  const updatePost = useUpdatePost();
+  const { data: likedPostIds } = useMyLikedPostIds();
 
-  // When a category chip is selected, fetch all posts whose moodboard is in
-  // that category. Skipped when filter==='all' (we render moodboard cards).
-  const categoryForPosts =
-    filter === 'all' ? undefined : (filter as MoodboardCategory);
-  const { data: categoryPosts = [], isLoading: postsLoading } =
-    usePostsByCategory(categoryForPosts);
+  const moodboardMetaById = useMemo(() => {
+    const map: Record<
+      string,
+      { title: string; category: MoodboardCategory; teamName: string | null; teamColor: string | null }
+    > = {};
+    for (const mb of moodboards) {
+      map[mb.id] = {
+        title: mb.title,
+        category: (mb.category ?? 'inquiry') as MoodboardCategory,
+        teamName: mb.team_name,
+        teamColor: mb.team_color,
+      };
+    }
+    return map;
+  }, [moodboards]);
 
-  const groupedByCategory = useMemo(() => {
-    const groups: Record<MoodboardCategory, MoodboardWithCreator[]> = {
+  // 'all' view: every visible post grouped by its moodboard's category.
+  const { data: allPosts = [], isLoading: allPostsLoading } = useAllVisiblePosts();
+  const postsByCategory = useMemo(() => {
+    const groups: Record<MoodboardCategory, PostWithAuthor[]> = {
       activities: [],
       environment: [],
       play: [],
@@ -287,20 +258,53 @@ export default function HomePage() {
       parents: [],
       annual: [],
     };
-    for (const mb of moodboards) {
-      const cat = (mb.category ?? 'inquiry') as MoodboardCategory;
-      if (groups[cat]) groups[cat].push(mb);
+    for (const p of allPosts) {
+      const cat = moodboardMetaById[p.moodboard_id]?.category;
+      if (cat && groups[cat]) groups[cat].push(p);
     }
     return groups;
-  }, [moodboards]);
+  }, [allPosts, moodboardMetaById]);
 
-  const moodboardMetaById = useMemo(() => {
-    const map: Record<string, { title: string; teamName: string | null; teamColor: string | null }> = {};
-    for (const mb of moodboards) {
-      map[mb.id] = { title: mb.title, teamName: mb.team_name, teamColor: mb.team_color };
-    }
-    return map;
-  }, [moodboards]);
+  // Category-filter view: posts of a single category.
+  const categoryForPosts =
+    filter === 'all' ? undefined : (filter as MoodboardCategory);
+  const { data: categoryPosts = [], isLoading: postsLoading } =
+    usePostsByCategory(categoryForPosts);
+
+  const isLoading = moodboardsLoading || (filter === 'all' ? allPostsLoading : postsLoading);
+
+  const ownTeamId = useAuthStore((s) => s.team?.id);
+
+  /** Render one PostTile with home-page wiring.
+   *  Team name comes from the POST's owning team (post.team_id), not the
+   *  moodboard's team — users can post to other teams' public moodboards. */
+  const renderTile = (
+    p: PostWithAuthor,
+    idx: number,
+    open: () => void,
+  ) => {
+    const isOwnTeam = !!ownTeamId && p.team_id === ownTeamId;
+    return (
+      <PostTile
+        key={p.id}
+        post={p}
+        index={idx}
+        onClick={open}
+        teamName={p.team_name ?? undefined}
+        authorColor={p.team_color ?? undefined}
+        onTeamClick={isOwnTeam ? () => navigate('/teamboard') : undefined}
+        onToggleLike={(id) => toggleLike.mutate(id)}
+      />
+    );
+  };
+
+  // Derive the live viewer list from current query data, keyed by
+  // viewer.source so likes/deletes refresh the viewer in place.
+  const viewerPosts: PostWithAuthor[] = !viewer
+    ? []
+    : viewer.source === 'category-section'
+      ? postsByCategory[viewer.cat] ?? []
+      : categoryPosts;
 
   return (
     <Page>
@@ -338,7 +342,7 @@ export default function HomePage() {
           <Empty>
             <div className="t">…</div>
           </Empty>
-        ) : moodboards.length === 0 ? (
+        ) : allPosts.length === 0 && filter === 'all' ? (
           <Empty>
             <div className="t">{t('empty.home.title')}</div>
             <div className="d">{t('empty.home.desc')}</div>
@@ -347,7 +351,7 @@ export default function HomePage() {
         ) : filter === 'all' ? (
           <>
             {MOODBOARD_CATEGORIES.map((cat) => {
-              const items = groupedByCategory[cat];
+              const items = postsByCategory[cat];
               if (!items || items.length === 0) return null;
               const visible = items.slice(0, SECTION_PREVIEW_LIMIT);
               const hasMore = items.length > SECTION_PREVIEW_LIMIT;
@@ -364,13 +368,17 @@ export default function HomePage() {
                       </MoreLink>
                     )}
                   </SectionHeader>
-                  <MoodboardGrid items={visible} coverData={coverData} />
+                  <PostGrid>
+                    {visible.map((p, idx) =>
+                      renderTile(p, idx, () =>
+                        setViewer({ source: 'category-section', cat, idx }),
+                      ),
+                    )}
+                  </PostGrid>
                 </Section>
               );
             })}
           </>
-        ) : postsLoading ? (
-          <SectionEmpty>…</SectionEmpty>
         ) : categoryPosts.length === 0 ? (
           <SectionEmpty>{t('empty.category')}</SectionEmpty>
         ) : (
@@ -382,21 +390,11 @@ export default function HomePage() {
               </h2>
             </SectionHeader>
             <PostGrid>
-              {categoryPosts.map((p, idx) => {
-                const meta = moodboardMetaById[p.moodboard_id];
-                return (
-                  <PostTile
-                    key={p.id}
-                    post={p}
-                    index={idx}
-                    onClick={() => setViewerIdx(idx)}
-                    teamName={meta?.teamName ?? undefined}
-                    authorColor={meta?.teamColor ?? undefined}
-                    onTeamClick={() => navigate('/teamboard')}
-                    onToggleLike={(id) => toggleLike.mutate(id)}
-                  />
-                );
-              })}
+              {categoryPosts.map((p, idx) =>
+                renderTile(p, idx, () =>
+                  setViewer({ source: 'category-filter', idx }),
+                ),
+              )}
             </PostGrid>
           </Section>
         )}
@@ -406,14 +404,16 @@ export default function HomePage() {
         <CreateMoodboardModal onClose={() => setCreateOpen(false)} />
       )}
 
-      {viewerIdx !== null && (
+      {viewer && viewerPosts.length > 0 && (
         <Viewer
-          posts={categoryPosts}
-          index={viewerIdx}
-          onIndexChange={setViewerIdx}
-          onClose={() => setViewerIdx(null)}
+          posts={viewerPosts}
+          index={Math.min(viewer.idx, viewerPosts.length - 1)}
+          onIndexChange={(idx) => setViewer({ ...viewer, idx })}
+          onClose={() => setViewer(null)}
           onToggleLike={(id) => toggleLike.mutate(id)}
+          likedPostIds={likedPostIds}
           onDeletePost={(id) => deletePost.mutateAsync(id).then(() => undefined)}
+          onUpdatePost={(input) => updatePost.mutateAsync(input).then(() => undefined)}
           currentUserId={session?.user.id ?? null}
           isTeamLeader={membership?.role === 'leader'}
           isAdmin={isAdmin}

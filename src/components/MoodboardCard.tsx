@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import type { Moodboard } from '@/types/database';
 import { MoodboardCover } from './MoodboardCover';
 
-const Card = styled(Link)<{ delay: number; featured?: boolean }>`
-  display: block;
+const Card = styled(Link)<{ delay: number }>`
+  display: flex;
+  flex-direction: column;
   cursor: pointer;
   color: inherit;
   opacity: 0;
@@ -20,17 +21,11 @@ const Card = styled(Link)<{ delay: number; featured?: boolean }>`
   }
 `;
 
-/**
- * Cover frame: when the card has actual cover images we let the image
- * dictate the natural height (masonry rhythm). For empty/placeholder
- * boards we fall back to a fixed 4:3 so they don't collapse.
- */
-const CoverFrame = styled.div<{ hasImages: boolean }>`
+const CoverFrame = styled.div`
   position: relative;
   width: 100%;
-  aspect-ratio: ${({ hasImages }) => (hasImages ? 'auto' : '4 / 3')};
+  aspect-ratio: 4 / 3;
   overflow: hidden;
-  margin-bottom: 12px;
   border-radius: 14px;
   background: ${({ theme }) => theme.surface};
 
@@ -52,83 +47,56 @@ const CoverFrame = styled.div<{ hasImages: boolean }>`
   }
 `;
 
-const Badge = styled.div`
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 11px;
+const Footer = styled.div`
+  padding: 10px 4px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const PostTitle = styled.div`
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: ${({ theme }) => theme.text};
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+
+const TeamLink = styled.button`
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: #1a1714;
+  color: ${({ theme }) => theme.textMuted};
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  &:hover {
+    color: ${({ theme }) => theme.text};
+    text-decoration: underline;
+  }
+`;
+
+const Author = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  z-index: 3;
-`;
-
-const Dot = styled.span<{ c: string }>`
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: ${({ c }) => c};
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
-`;
-
-const TeamPill = styled.button`
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #fff;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  border: 0;
-  cursor: pointer;
-  opacity: 0;
-  transform: translateY(4px);
-  transition: all 0.25s ease;
-  z-index: 4;
-
-  ${Card}:hover & {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  &:hover {
-    background: rgba(0, 0, 0, 0.88);
-  }
-`;
-
-const Title = styled.h3`
-  font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: 1.35;
-  margin-bottom: 4px;
-  color: ${({ theme }) => theme.ink};
-  text-wrap: balance;
-`;
-
-const Meta = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  font-size: 12px;
   color: ${({ theme }) => theme.textMuted};
 `;
 
-const MiniAvatar = styled.span<{ c: string }>`
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: ${({ c }) => c};
+const Avatar = styled.span<{ bg: string }>`
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: ${({ bg }) => bg};
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -142,7 +110,6 @@ interface Props {
   mb: Moodboard;
   count?: number;
   index?: number;
-  featured?: boolean;
   teamName?: string;
   nickname?: string;
   nickInitial?: string;
@@ -153,7 +120,6 @@ interface Props {
 export function MoodboardCard({
   mb,
   index = 0,
-  featured = false,
   teamName,
   nickname,
   nickInitial,
@@ -165,21 +131,15 @@ export function MoodboardCard({
   const grad = mb.cover_gradient || `linear-gradient(135deg, ${dot}66, ${dot})`;
 
   return (
-    <Card to={`/moodboards/${mb.id}`} delay={index * 40} featured={featured}>
-      <CoverFrame hasImages={coverImages.length > 0}>
-        <MoodboardCover
-          grad={grad}
-          images={coverImages}
-          layout={featured ? 'collage' : 'rotate'}
-        />
+    <Card to={`/moodboards/${mb.id}`} delay={index * 40}>
+      <CoverFrame>
+        <MoodboardCover grad={grad} images={coverImages} layout="rotate" />
+        <span className="overlay" />
+      </CoverFrame>
+      <Footer>
+        <PostTitle>{mb.title}</PostTitle>
         {teamName && (
-          <Badge>
-            <Dot c={dot} />
-            {teamName}
-          </Badge>
-        )}
-        {teamName && (
-          <TeamPill
+          <TeamLink
             type="button"
             title={`${teamName} 팀보드 보기`}
             onClick={(e) => {
@@ -188,18 +148,16 @@ export function MoodboardCard({
               navigate('/teamboard');
             }}
           >
-            {teamName} →
-          </TeamPill>
+            {teamName}
+          </TeamLink>
         )}
-        <span className="overlay" />
-      </CoverFrame>
-      <Title>{mb.title}</Title>
-      {nickname && (
-        <Meta>
-          <MiniAvatar c={nickColor}>{nickInitial ?? nickname.charAt(0)}</MiniAvatar>
-          <span style={{ fontWeight: 500 }}>{nickname}</span>
-        </Meta>
-      )}
+        {nickname && (
+          <Author>
+            <Avatar bg={nickColor}>{nickInitial ?? nickname.charAt(0)}</Avatar>
+            <span>{nickname}</span>
+          </Author>
+        )}
+      </Footer>
     </Card>
   );
 }

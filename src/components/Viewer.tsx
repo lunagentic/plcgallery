@@ -2,9 +2,72 @@ import styled from '@emotion/styled';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PostWithAuthor } from '@/hooks/usePosts';
+import {
+  usePostComments,
+  useCreateComment,
+  useUpdateComment,
+  useDeleteComment,
+  type CommentRow,
+} from '@/hooks/useComments';
 import { getPublicImageUrl } from '@/lib/supabase';
 import { copyToClipboard } from '@/lib/clipboard';
 import { useUIStore } from '@/store/uiStore';
+
+/* ── Heroicons-style 24×24 outline SVGs (Tailwind defaults).
+ *    `currentColor` lets them inherit the button's color. */
+const Icon = ({
+  d,
+  fill = 'none',
+  size = 18,
+}: {
+  d: string;
+  fill?: string;
+  size?: number;
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill={fill}
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d={d} />
+  </svg>
+);
+const HeartOutlineIcon = () => (
+  <Icon d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733C11.285 4.876 9.623 3.75 7.688 3.75 5.099 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
+);
+const HeartFilledIcon = () => (
+  <Icon
+    d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733C11.285 4.876 9.623 3.75 7.688 3.75 5.099 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z"
+    fill="currentColor"
+  />
+);
+const ClipboardIcon = () => (
+  <Icon d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5-.124m7.5 10.5h2.25c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.5-7.5-10.5" />
+);
+const TrashIcon = () => (
+  <Icon d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12.56.597c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+);
+const DownloadIcon = () => (
+  <Icon d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-6L12 15m0 0 4.5-4.5M12 15V2.25" />
+);
+const PencilIcon = () => (
+  <Icon d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+);
+const ChatIcon = () => (
+  <Icon d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 0 1 .778-.332 48.294 48.294 0 0 0 5.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+);
+const ReplyIcon = () => (
+  <Icon d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+);
+const CloseIcon = () => (
+  <Icon d="M6 18 18 6M6 6l12 12" />
+);
 
 const Overlay = styled.div<{ bg: string }>`
   position: fixed;
@@ -29,29 +92,104 @@ const TopBar = styled.header`
   top: 0;
   left: 0;
   right: 0;
-  height: 64px;
-  padding: 0 24px;
+  padding: 18px 24px 16px;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(20px);
+  align-items: flex-start;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   z-index: 14;
-  .title {
-    flex: 1;
-    font-size: 14px;
-    font-weight: 600;
-    color: rgba(26, 23, 20, 0.85);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
   .idx {
     font-variant-numeric: tabular-nums;
     font-size: 12px;
     color: rgba(26, 23, 20, 0.55);
-    padding-right: 4px;
   }
+`;
+
+const HeaderColumn = styled.div`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const HeaderTitle = styled.h1`
+  margin: 0;
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(22px, 3.4vw, 34px);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: #1a1714;
+  word-break: keep-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+
+const HeaderSubMeta = styled.div`
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(26, 23, 20, 0.65);
+  letter-spacing: 0.01em;
+  .author {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(26, 23, 20, 0.78);
+  }
+  .team {
+    color: rgba(26, 23, 20, 0.6);
+  }
+  .sep {
+    color: rgba(26, 23, 20, 0.3);
+  }
+`;
+
+const HeaderTopRight = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding-top: 4px;
+`;
+
+const PanelTagRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+`;
+
+const PanelTagPill = styled.span`
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  font-weight: 600;
+`;
+
+const MiniAvatar = styled.span`
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f4d35e, #e07856);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 `;
 
 const TitleInfoBtn = styled.button<{ visible: boolean }>`
@@ -188,79 +326,6 @@ const PanelCloseBtn = styled.button`
   }
 `;
 
-const PanelCopyBtn = styled.button`
-  position: absolute;
-  top: 14px;
-  right: 50px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(8px);
-  color: rgba(255, 255, 255, 0.95);
-  font-size: 11px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  &:hover {
-    background: rgba(255, 255, 255, 0.32);
-  }
-`;
-
-const Title = styled.h2`
-  font-family: 'Fraunces', serif;
-  font-style: italic;
-  font-size: 32px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
-  color: #ffffff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-`;
-
-const AuthorRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  .name {
-    font-size: 14px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.95);
-  }
-  .desc {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
-    margin-top: 2px;
-  }
-`;
-
-const Avatar = styled.div`
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #f4d35e, #e07856);
-  color: #fff;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-`;
-
-const TagRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-`;
-
-const TagPill = styled.span`
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 11px;
-  font-weight: 600;
-`;
-
 const Body = styled.p`
   font-size: 13px;
   line-height: 1.7;
@@ -289,28 +354,41 @@ const TipBox = styled.div`
   }
 `;
 
-const PanelFooter = styled.div`
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-`;
-
-const LikeBtn = styled.button`
+const LikeBtn = styled.button<{ liked: boolean }>`
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 16px;
+  gap: 6px;
+  padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
+  background: transparent;
+  border: 0;
   font-size: 13px;
   font-weight: 700;
-  color: #1a1714;
+  color: ${({ liked }) => (liked ? '#E2725B' : '#1a1714')};
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.18s cubic-bezier(0.2, 0.85, 0.25, 1);
   &:hover {
-    background: #fff;
+    background: rgba(0, 0, 0, 0.06);
+  }
+  &:active {
+    transform: scale(0.92);
+  }
+`;
+
+const CopyBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1a1714;
+  cursor: pointer;
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
   }
 `;
 
@@ -320,14 +398,15 @@ const DeleteBtn = styled.button`
   gap: 6px;
   padding: 8px 14px;
   border-radius: 999px;
-  background: rgba(220, 38, 38, 0.18);
-  border: 1px solid rgba(220, 38, 38, 0.4);
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid rgba(220, 38, 38, 0.32);
   font-size: 12px;
   font-weight: 700;
-  color: #fff5f5;
+  color: #b91c1c;
+  cursor: pointer;
   &:hover {
-    background: rgba(220, 38, 38, 0.32);
-    border-color: rgba(220, 38, 38, 0.7);
+    background: rgba(220, 38, 38, 0.22);
+    border-color: rgba(220, 38, 38, 0.55);
   }
 `;
 
@@ -369,14 +448,21 @@ const Hint = styled.div`
 
 const BottomBar = styled.div`
   position: absolute;
-  bottom: 16px;
-  right: 24px;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 13;
-  display: flex;
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.18);
   @media (max-width: 900px) {
-    bottom: 56px;
-    right: 12px;
+    bottom: 12px;
   }
 `;
 
@@ -387,6 +473,329 @@ const ThumbStrip = styled.div`
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(12px);
+`;
+
+/** Comment toggle: pinned at the right edge but ~88px below the vertical
+ *  centre so it never overlaps the right NavBtn arrow (which is centred
+ *  vertically at 50% with a 52px height). */
+const CommentToggle = styled.button<{ open: boolean }>`
+  position: absolute;
+  top: calc(50% + 50px);
+  right: ${({ open }) => (open ? '396px' : '20px')};
+  z-index: 14;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1a1714;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition: right 280ms cubic-bezier(0.2, 0.85, 0.25, 1), background 0.15s ease;
+  &:hover {
+    background: #fff;
+  }
+  @media (max-width: 900px) {
+    top: calc(50% + 42px);
+    width: 40px;
+    height: 40px;
+  }
+  @media (max-width: 700px) {
+    right: ${({ open }) => (open ? 'calc(100vw - 16px)' : '12px')};
+  }
+`;
+
+const CommentPanel = styled.aside<{ open: boolean }>`
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 100vw;
+  z-index: 16;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: -10px 0 28px -16px rgba(0, 0, 0, 0.2);
+  transform: translateX(${({ open }) => (open ? '0' : '105%')});
+  transition: transform 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
+  @media (max-width: 700px) {
+    width: 100vw;
+  }
+`;
+
+const CommentHeader = styled.header`
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1a1714;
+  }
+  .count {
+    font-size: 12px;
+    color: rgba(26, 23, 20, 0.55);
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+`;
+
+const CommentList = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const CommentItem = styled.div<{ depth: number }>`
+  margin-left: ${({ depth }) => (depth > 0 ? '24px' : '0')};
+  padding: 10px 12px;
+  background: ${({ depth }) =>
+    depth > 0 ? 'rgba(26, 23, 20, 0.04)' : 'transparent'};
+  border-radius: 12px;
+  border: 1px solid
+    ${({ depth }) =>
+      depth > 0 ? 'transparent' : 'rgba(26, 23, 20, 0.08)'};
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .who {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #1a1714;
+  }
+  .when {
+    font-size: 11px;
+    color: rgba(26, 23, 20, 0.5);
+    font-weight: 500;
+  }
+  .body {
+    font-size: 13px;
+    line-height: 1.55;
+    color: rgba(26, 23, 20, 0.86);
+    white-space: pre-wrap;
+    word-break: keep-all;
+  }
+  .actions {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .actions button {
+    background: transparent;
+    border: 0;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(26, 23, 20, 0.55);
+    cursor: pointer;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .actions button:hover {
+    color: #1a1714;
+    background: rgba(26, 23, 20, 0.06);
+  }
+  .actions button.danger {
+    color: #b91c1c;
+  }
+  .actions button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
+const CommentCompose = styled.form`
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  textarea {
+    resize: none;
+    min-height: 60px;
+    max-height: 160px;
+    border-radius: 10px;
+    border: 1px solid ${({ theme }) => theme.border};
+    background: ${({ theme }) => theme.surface};
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    font-family: inherit;
+    color: ${({ theme }) => theme.text};
+    &:focus {
+      outline: none;
+      border-color: ${({ theme }) => theme.brand};
+    }
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    color: rgba(26, 23, 20, 0.55);
+  }
+  button.send {
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 0;
+    background: ${({ theme }) => theme.brand};
+    color: ${({ theme }) => theme.ctaText};
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  button.send:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .replying {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: ${({ theme }) => theme.brand};
+    background: ${({ theme }) => theme.brandSoft};
+    padding: 4px 8px;
+    border-radius: 999px;
+  }
+  .replying button {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+    font-size: 11px;
+    line-height: 1;
+  }
+`;
+
+const EditBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1a1714;
+  cursor: pointer;
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+  }
+`;
+
+const EditBackdrop = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(20, 17, 13, 0.55);
+  backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+`;
+
+const EditSheet = styled.form`
+  width: 100%;
+  max-width: 520px;
+  padding: 28px 26px 22px;
+  border-radius: 20px;
+  background: ${({ theme }) => theme.paper};
+  border: 1px solid ${({ theme }) => theme.border};
+  box-shadow: ${({ theme }) => theme.shadowLg};
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  h3 {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 24px;
+    font-weight: 500;
+    margin: 0 0 4px;
+    color: ${({ theme }) => theme.ink};
+  }
+  label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: ${({ theme }) => theme.ink2};
+    margin-bottom: 4px;
+    display: block;
+  }
+  input,
+  textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid ${({ theme }) => theme.border};
+    background: ${({ theme }) => theme.surface};
+    color: ${({ theme }) => theme.text};
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    &:focus {
+      outline: none;
+      border-color: ${({ theme }) => theme.brand};
+    }
+  }
+  textarea {
+    min-height: 90px;
+  }
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .actions button {
+    padding: 9px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .actions .cancel {
+    background: ${({ theme }) => theme.surface};
+    color: ${({ theme }) => theme.ink2};
+    border: 1px solid ${({ theme }) => theme.border};
+  }
+  .actions .save {
+    background: ${({ theme }) => theme.brand};
+    color: ${({ theme }) => theme.ctaText};
+    border: 0;
+  }
+  .actions .save:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const Thumb = styled.button<{ active: boolean }>`
@@ -417,8 +826,18 @@ interface ViewerProps {
   onIndexChange: (i: number) => void;
   onClose: () => void;
   onToggleLike: (postId: string) => void;
+  /** Set of post ids the current user has liked. Drives the heart fill. */
+  likedPostIds?: Set<string>;
   /** Optional: pass to enable the delete button on permitted posts. */
   onDeletePost?: (postId: string) => Promise<void> | void;
+  /** Optional: pass to enable the edit button. Receives the patch the user
+   *  submitted from the inline edit form. */
+  onUpdatePost?: (input: {
+    postId: string;
+    title: string;
+    description: string | null;
+    tags: string[];
+  }) => Promise<void> | void;
   /** The current viewer's user_id (auth.uid()), used to gate the delete button. */
   currentUserId?: string | null;
   /** True if the current user is the leader of the team. */
@@ -433,9 +852,10 @@ export function Viewer({
   onIndexChange,
   onClose,
   onToggleLike,
+  likedPostIds,
   onDeletePost,
+  onUpdatePost,
   currentUserId,
-  isTeamLeader,
   isAdmin,
 }: ViewerProps) {
   const { t } = useTranslation();
@@ -453,8 +873,24 @@ export function Viewer({
   const [panelVisible, setPanelVisible] = useState(false);
   const [manualClosed, setManualClosed] = useState(false);
   const [imgIdx, setImgIdx] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editTags, setEditTags] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [composeText, setComposeText] = useState('');
+  const [replyTo, setReplyTo] = useState<{ id: string; nickname: string | null } | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState('');
   const showToast = useUIStore((s) => s.showToast);
   const post = posts[index];
+
+  const { data: threads = [] } = usePostComments(commentsOpen ? post?.id : undefined);
+  const createComment = useCreateComment();
+  const updateComment = useUpdateComment();
+  const deleteComment = useDeleteComment();
+  const totalComments = threads.reduce((acc, t) => acc + 1 + t.replies.length, 0);
 
   const handleHoverEnter = useCallback(() => {
     if (manualClosed) return;
@@ -481,6 +917,10 @@ export function Viewer({
     setImgIdx(0);
     setPanelVisible(false);
     setManualClosed(false);
+    setReplyTo(null);
+    setEditingCommentId(null);
+    setEditingDraft('');
+    setComposeText('');
   }, [index]);
 
   const copyPanelContent = async () => {
@@ -532,11 +972,13 @@ export function Viewer({
   if (!post) return null;
 
   const stageBg = post.stage_bg ?? '#F8D5C4';
-  const hasInfo =
+  // Transparent panel holds tags + tip + description (the long-form body).
+  // Title/author/team stay in the solid TopBar for instant glance.
+  const hasBody =
     !!post.description ||
     !!post.tip_text ||
-    (post.tags && post.tags.length > 0) ||
-    !!post.title;
+    (post.tags && post.tags.length > 0);
+  const hasInfo = hasBody;
 
   // Build the bundle list. Prefer image_paths (new bundled format).
   // Fall back to the single image_path for legacy posts.
@@ -553,25 +995,66 @@ export function Viewer({
   const safeIdx = Math.min(imgIdx, Math.max(0, imageBundle.length - 1));
   const currentImageUrl = imageBundle[safeIdx] ?? '';
 
+  const initial = (post.author_nickname ?? post.title ?? '?').charAt(0).toUpperCase();
+  const isLiked = !!likedPostIds?.has(post.id);
+
+  const downloadCurrentImage = async () => {
+    if (!currentImageUrl) return;
+    try {
+      const res = await fetch(currentImageUrl, { mode: 'cors' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const ext =
+        currentImageUrl.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'jpg';
+      const safeTitle = (post.title || 'image')
+        .replace(/[\\/:*?"<>|]/g, '')
+        .slice(0, 60);
+      const suffix = imageBundle.length > 1 ? `-${safeIdx + 1}` : '';
+      const a = document.createElement('a');
+      const objectUrl = URL.createObjectURL(blob);
+      a.href = objectUrl;
+      a.download = `${safeTitle}${suffix}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+      showToast('다운로드를 시작했어요');
+    } catch (e) {
+      showToast(`다운로드 실패: ${(e as Error).message}`, 'error');
+    }
+  };
+
   return (
     <Overlay role="dialog" aria-modal bg={stageBg}>
       <TopBar>
-        <span className="title">{post.title}</span>
-        {hasInfo && (
-          <TitleInfoBtn
-            visible={!panelVisible}
-            type="button"
-            onClick={handleOpenPanel}
-            aria-label="정보 보기"
-            title="정보 보기"
-          />
-        )}
-        <span className="idx">
-          {index + 1} / {posts.length}
-        </span>
-        <RoundBtn onClick={onClose} aria-label="Close">
-          ✕
-        </RoundBtn>
+        <HeaderColumn>
+          <HeaderTitle>{post.title}</HeaderTitle>
+          <HeaderSubMeta>
+            {post.team_name && <span className="team">{post.team_name}</span>}
+            {post.team_name && <span className="sep">·</span>}
+            <span className="author">
+              <MiniAvatar>{initial}</MiniAvatar>
+              {post.author_nickname ?? '작가 미상'}
+            </span>
+          </HeaderSubMeta>
+        </HeaderColumn>
+        <HeaderTopRight>
+          <span className="idx">
+            {index + 1} / {posts.length}
+          </span>
+          {hasInfo && (
+            <TitleInfoBtn
+              visible={!panelVisible}
+              type="button"
+              onClick={handleOpenPanel}
+              aria-label="내용 보기"
+              title="내용 보기"
+            />
+          )}
+          <RoundBtn onClick={onClose} aria-label="Close">
+            <CloseIcon />
+          </RoundBtn>
+        </HeaderTopRight>
       </TopBar>
 
       {index > 0 && (
@@ -597,41 +1080,25 @@ export function Viewer({
             style={{ background: 'rgba(255,255,255,0.2)' }}
           />
 
-          {hasInfo && (
+          {hasBody && (
             <InfoPanel visible={panelVisible} aria-hidden={!panelVisible}>
-              <PanelCopyBtn onClick={copyPanelContent} type="button" title="내용 복사">
-                📋 복사
-              </PanelCopyBtn>
               <PanelCloseBtn
                 onClick={handleClosePanel}
                 type="button"
                 aria-label="패널 닫기"
                 title="닫기"
               >
-                ✕
+                <CloseIcon />
               </PanelCloseBtn>
-              <Title>{post.title}</Title>
-              <AuthorRow>
-                <Avatar>
-                  {(post.author_nickname ?? post.title ?? '?').charAt(0).toUpperCase()}
-                </Avatar>
-                <div>
-                  <div className="name">{post.author_nickname ?? '작가 미상'}</div>
-                  <div className="desc">팀 보드 게시물</div>
-                </div>
-              </AuthorRow>
               {post.tags && post.tags.length > 0 && (
-                <TagRow>
+                <PanelTagRow>
                   {post.tags.map((tag) => (
-                    <TagPill key={tag}>#{tag}</TagPill>
+                    <PanelTagPill key={tag}>#{tag}</PanelTagPill>
                   ))}
-                </TagRow>
+                </PanelTagRow>
               )}
               {post.tip_text && <TipBox>{post.tip_text}</TipBox>}
               {post.description && <Body>{post.description}</Body>}
-              <PanelFooter>
-                <LikeBtn onClick={() => onToggleLike(post.id)}>♥ {post.likes_count}</LikeBtn>
-              </PanelFooter>
             </InfoPanel>
           )}
         </ImageHost>
@@ -656,26 +1123,472 @@ export function Viewer({
 
       <Hint>{t('viewer.hint')}</Hint>
 
-      {(post.author_id === currentUserId || isTeamLeader || isAdmin) &&
-        onDeletePost && (
-          <BottomBar>
-            <DeleteBtn
-              type="button"
-              onClick={async () => {
-                if (!confirm('이 게시물을 삭제할까요? 되돌릴 수 없어요.')) return;
-                try {
-                  await onDeletePost(post.id);
-                  if (posts.length <= 1) onClose();
-                } catch (e) {
-                  showToast((e as Error).message ?? '삭제 실패', 'error');
-                }
-              }}
-              title={isAdmin ? '관리자 권한 삭제' : '삭제'}
-            >
-              🗑 삭제
-            </DeleteBtn>
-          </BottomBar>
+      <BottomBar>
+        <LikeBtn
+          liked={isLiked}
+          onClick={() => onToggleLike(post.id)}
+          title={isLiked ? '좋아요 취소' : '좋아요'}
+          aria-pressed={isLiked}
+        >
+          {isLiked ? <HeartFilledIcon /> : <HeartOutlineIcon />}
+          {post.likes_count}
+        </LikeBtn>
+        <CopyBtn onClick={copyPanelContent} type="button" title="내용 복사">
+          <ClipboardIcon /> 복사
+        </CopyBtn>
+        <CopyBtn
+          onClick={downloadCurrentImage}
+          type="button"
+          title="이미지 다운로드"
+          aria-label="이미지 다운로드"
+        >
+          <DownloadIcon /> 다운로드
+        </CopyBtn>
+        {(post.author_id === currentUserId || isAdmin) && onUpdatePost && (
+          <EditBtn
+            type="button"
+            onClick={() => {
+              setEditTitle(post.title);
+              setEditDesc(post.description ?? '');
+              setEditTags((post.tags ?? []).join(', '));
+              setEditing(true);
+            }}
+            title="수정"
+          >
+            <PencilIcon /> 수정
+          </EditBtn>
         )}
+        {post.author_id === currentUserId && onDeletePost && (
+          <DeleteBtn
+            type="button"
+            onClick={async () => {
+              if (!confirm('이 게시물을 삭제할까요? 되돌릴 수 없어요.')) return;
+              try {
+                await onDeletePost(post.id);
+                if (posts.length <= 1) onClose();
+              } catch (e) {
+                showToast((e as Error).message ?? '삭제 실패', 'error');
+              }
+            }}
+            title="삭제"
+          >
+            <TrashIcon /> 삭제
+          </DeleteBtn>
+        )}
+      </BottomBar>
+
+      {editing && onUpdatePost && (
+        <EditBackdrop onClick={(e) => e.target === e.currentTarget && setEditing(false)}>
+          <EditSheet
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!editTitle.trim() || editSaving) return;
+              setEditSaving(true);
+              try {
+                const tags = editTags
+                  .split(',')
+                  .map((t) => t.trim().replace(/^#/, ''))
+                  .filter(Boolean);
+                await onUpdatePost({
+                  postId: post.id,
+                  title: editTitle.trim(),
+                  description: editDesc.trim() || null,
+                  tags,
+                });
+                showToast('게시물이 수정됐어요');
+                setEditing(false);
+              } catch (err) {
+                showToast((err as Error).message ?? '수정 실패', 'error');
+              } finally {
+                setEditSaving(false);
+              }
+            }}
+          >
+            <h3>게시물 수정</h3>
+            <div>
+              <label htmlFor="edit-title">제목</label>
+              <input
+                id="edit-title"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                maxLength={120}
+                autoFocus
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-desc">내용</label>
+              <textarea
+                id="edit-desc"
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                rows={5}
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-tags">태그 (쉼표로 구분)</label>
+              <input
+                id="edit-tags"
+                value={editTags}
+                onChange={(e) => setEditTags(e.target.value)}
+                placeholder="예: 환경, 컬러링, AI"
+              />
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="cancel"
+                onClick={() => setEditing(false)}
+                disabled={editSaving}
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                className="save"
+                disabled={editSaving || !editTitle.trim()}
+              >
+                {editSaving ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </EditSheet>
+        </EditBackdrop>
+      )}
+
+      <CommentToggle
+        type="button"
+        open={commentsOpen}
+        onClick={() => setCommentsOpen((v) => !v)}
+        title={commentsOpen ? '댓글 닫기' : '댓글 보기'}
+        aria-label="댓글"
+        aria-expanded={commentsOpen}
+      >
+        {commentsOpen ? <CloseIcon /> : <ChatIcon />}
+      </CommentToggle>
+
+      <CommentPanel open={commentsOpen} aria-hidden={!commentsOpen}>
+        <CommentHeader>
+          <h2>
+            댓글<span className="count">{totalComments}</span>
+          </h2>
+          <RoundBtn onClick={() => setCommentsOpen(false)} aria-label="댓글 닫기">
+            <CloseIcon />
+          </RoundBtn>
+        </CommentHeader>
+
+        <CommentList>
+          {threads.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'rgba(0,0,0,0.4)', fontSize: 12, padding: '32px 0' }}>
+              아직 댓글이 없어요. 첫 댓글을 남겨보세요!
+            </div>
+          ) : (
+            threads.map((t) => (
+              <CommentThread
+                key={t.id}
+                thread={t}
+                currentUserId={currentUserId ?? null}
+                isAdmin={!!isAdmin}
+                editingId={editingCommentId}
+                editingDraft={editingDraft}
+                onStartEdit={(c) => {
+                  setEditingCommentId(c.id);
+                  setEditingDraft(c.content);
+                }}
+                onCancelEdit={() => {
+                  setEditingCommentId(null);
+                  setEditingDraft('');
+                }}
+                onChangeEdit={setEditingDraft}
+                onSaveEdit={async (c) => {
+                  if (!editingDraft.trim()) return;
+                  try {
+                    await updateComment.mutateAsync({
+                      commentId: c.id,
+                      postId: post.id,
+                      content: editingDraft,
+                    });
+                    setEditingCommentId(null);
+                    setEditingDraft('');
+                  } catch (e) {
+                    showToast((e as Error).message ?? '수정 실패', 'error');
+                  }
+                }}
+                onDelete={async (c, asAdmin) => {
+                  if (!confirm('댓글을 삭제할까요?')) return;
+                  try {
+                    await deleteComment.mutateAsync({
+                      commentId: c.id,
+                      postId: post.id,
+                      asAdmin,
+                    });
+                  } catch (e) {
+                    showToast((e as Error).message ?? '삭제 실패', 'error');
+                  }
+                }}
+                onReply={(c) =>
+                  setReplyTo({ id: c.id, nickname: c.author_nickname ?? '작가' })
+                }
+              />
+            ))
+          )}
+        </CommentList>
+
+        <CommentCompose
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!composeText.trim() || createComment.isPending) return;
+            if (!currentUserId) {
+              showToast('댓글을 달려면 팀에 들어와주세요', 'error');
+              return;
+            }
+            try {
+              await createComment.mutateAsync({
+                postId: post.id,
+                content: composeText,
+                parentId: replyTo?.id ?? null,
+              });
+              setComposeText('');
+              setReplyTo(null);
+            } catch (err) {
+              showToast((err as Error).message ?? '댓글 작성 실패', 'error');
+            }
+          }}
+        >
+          {replyTo && (
+            <span className="replying">
+              ↳ {replyTo.nickname}에게 답글
+              <button type="button" onClick={() => setReplyTo(null)} aria-label="답글 취소">
+                ✕
+              </button>
+            </span>
+          )}
+          <textarea
+            value={composeText}
+            onChange={(e) => setComposeText(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter submits, Shift+Enter (or IME composition) keeps the
+              // newline. `isComposing` guards against accidental submit while
+              // the user is still finishing a Korean character.
+              if (
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }
+            }}
+            placeholder={
+              currentUserId
+                ? '댓글을 입력하세요… (Enter로 등록, Shift+Enter는 줄바꿈)'
+                : '댓글을 달려면 팀에 들어와주세요'
+            }
+            disabled={!currentUserId || createComment.isPending}
+            maxLength={1000}
+          />
+          <div className="row">
+            <span>{composeText.length}/1000</span>
+            <button
+              type="submit"
+              className="send"
+              disabled={
+                !currentUserId ||
+                !composeText.trim() ||
+                createComment.isPending
+              }
+            >
+              {createComment.isPending ? '작성 중…' : replyTo ? '답글 달기' : '댓글 달기'}
+            </button>
+          </div>
+        </CommentCompose>
+      </CommentPanel>
     </Overlay>
+  );
+}
+
+/* ── Sub-components ──────────────────────────────────────────────────── */
+
+const InlineEditForm = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  textarea {
+    resize: vertical;
+    min-height: 56px;
+    border-radius: 8px;
+    border: 1px solid ${({ theme }) => theme.border};
+    background: #fff;
+    padding: 8px 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    font-family: inherit;
+    color: ${({ theme }) => theme.text};
+    &:focus {
+      outline: none;
+      border-color: ${({ theme }) => theme.brand};
+    }
+  }
+  .actions {
+    display: inline-flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .actions button {
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid ${({ theme }) => theme.border};
+    background: ${({ theme }) => theme.surface};
+    color: ${({ theme }) => theme.ink};
+  }
+  .actions button.primary {
+    background: ${({ theme }) => theme.brand};
+    color: ${({ theme }) => theme.ctaText};
+    border-color: ${({ theme }) => theme.brand};
+  }
+`;
+
+function formatWhen(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const min = Math.floor(diffMs / 60000);
+    if (min < 1) return '방금';
+    if (min < 60) return `${min}분 전`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}시간 전`;
+    const day = Math.floor(hr / 24);
+    if (day < 7) return `${day}일 전`;
+    return new Intl.DateTimeFormat('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+  } catch {
+    return iso;
+  }
+}
+
+interface CommentThreadProps {
+  thread: { replies: CommentRow[] } & CommentRow;
+  currentUserId: string | null;
+  isAdmin: boolean;
+  editingId: string | null;
+  editingDraft: string;
+  onStartEdit: (c: CommentRow) => void;
+  onCancelEdit: () => void;
+  onChangeEdit: (next: string) => void;
+  onSaveEdit: (c: CommentRow) => void;
+  onDelete: (c: CommentRow, asAdmin: boolean) => void;
+  onReply: (c: CommentRow) => void;
+}
+
+function CommentThread({
+  thread,
+  currentUserId,
+  isAdmin,
+  editingId,
+  editingDraft,
+  onStartEdit,
+  onCancelEdit,
+  onChangeEdit,
+  onSaveEdit,
+  onDelete,
+  onReply,
+}: CommentThreadProps) {
+  const renderRow = (c: CommentRow, depth: 0 | 1) => {
+    const isOwn = !!currentUserId && c.author_id === currentUserId;
+    const editing = editingId === c.id;
+    const replyCount =
+      depth === 0 ? thread.replies.length : 0;
+    const repliesFull = depth === 0 && replyCount >= 10;
+    return (
+      <CommentItem key={c.id} depth={depth}>
+        <div className="row">
+          <span className="who">
+            {c.author_nickname ?? '익명'}
+            {c.is_edited && (
+              <span style={{ color: 'rgba(0,0,0,0.4)', fontWeight: 500 }}>
+                · 수정됨
+              </span>
+            )}
+          </span>
+          <span className="when">{formatWhen(c.created_at)}</span>
+        </div>
+        {editing ? (
+          <InlineEditForm>
+            <textarea
+              value={editingDraft}
+              onChange={(e) => onChangeEdit(e.target.value)}
+              maxLength={1000}
+              autoFocus
+            />
+            <div className="actions">
+              <button type="button" onClick={onCancelEdit}>
+                취소
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => onSaveEdit(c)}
+                disabled={!editingDraft.trim()}
+              >
+                저장
+              </button>
+            </div>
+          </InlineEditForm>
+        ) : (
+          <div className="body">{c.content}</div>
+        )}
+        {!editing && (
+          <div className="actions">
+            {depth === 0 && currentUserId && (
+              <button
+                type="button"
+                onClick={() => onReply(c)}
+                disabled={repliesFull}
+                title={repliesFull ? '대댓글은 최대 10개까지' : '답글'}
+              >
+                <ReplyIcon /> 답글
+                {replyCount > 0 ? ` ${replyCount}` : ''}
+              </button>
+            )}
+            {isOwn && (
+              <button type="button" onClick={() => onStartEdit(c)}>
+                수정
+              </button>
+            )}
+            {isOwn && (
+              <button
+                type="button"
+                className="danger"
+                onClick={() => onDelete(c, false)}
+              >
+                삭제
+              </button>
+            )}
+            {!isOwn && isAdmin && (
+              <button
+                type="button"
+                className="danger"
+                onClick={() => onDelete(c, true)}
+                title="관리자 권한으로 삭제"
+              >
+                관리자 삭제
+              </button>
+            )}
+          </div>
+        )}
+      </CommentItem>
+    );
+  };
+  return (
+    <div>
+      {renderRow(thread, 0)}
+      {thread.replies.map((r) => renderRow(r, 1))}
+    </div>
   );
 }

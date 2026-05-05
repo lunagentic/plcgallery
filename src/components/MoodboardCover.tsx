@@ -4,15 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 const Wrap = styled.div<{ grad: string }>`
   position: relative;
   width: 100%;
+  height: 100%;
   background: ${({ grad }) => grad};
   overflow: hidden;
 `;
 
-/** Empty cover — gradient + placeholder icon. Uses fixed 4:3 aspect since
- *  there's no image to dictate the height. */
-const PlaceholderWrap = styled(Wrap)`
-  aspect-ratio: 4 / 3;
-`;
+/** Empty cover — gradient + placeholder icon. Inherits the parent's height
+ *  (parent supplies the aspect ratio). */
+const PlaceholderWrap = styled(Wrap)``;
 
 const Placeholder = styled.div<{ grad: string }>`
   position: absolute;
@@ -52,10 +51,8 @@ const PlaceholderIcon = styled.svg`
   pointer-events: none;
 `;
 
-/** 2×2 collage — square. */
-const CollageWrap = styled(Wrap)`
-  aspect-ratio: 1 / 1;
-`;
+/** 2×2 collage — fills the parent frame (parent supplies aspect ratio). */
+const CollageWrap = styled(Wrap)``;
 
 const Grid = styled.div`
   position: absolute;
@@ -74,15 +71,6 @@ const Grid = styled.div`
     object-fit: cover;
     transition: transform 0.5s ease;
   }
-`;
-
-/** A spacer image — invisible, but its natural aspect ratio dictates the
- *  Wrap's height. The actual visible image(s) overlay on top. */
-const HeightSetter = styled.img`
-  width: 100%;
-  height: auto;
-  display: block;
-  visibility: hidden;
 `;
 
 const OverlayImg = styled.img<{ visible: boolean }>`
@@ -184,12 +172,10 @@ export function MoodboardCover({
     );
   }
 
-  /* Single image (or 1-3 images rotating). The first image acts as the
-   * height setter so the wrap hugs its natural aspect ratio. The actual
-   * displayed images crossfade on top. */
+  /* Single image (or 1-3 rotating). Parent's frame supplies the aspect
+   * ratio; images crossfade and `object-fit: cover` fills the frame. */
   return (
     <Wrap grad={grad}>
-      <HeightSetter src={images[0]} alt="" aria-hidden />
       {images.map((src, i) => (
         <OverlayImg key={src + i} src={src} alt="" loading="lazy" visible={i === idx} />
       ))}
