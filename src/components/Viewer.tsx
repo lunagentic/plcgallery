@@ -1,7 +1,7 @@
 import styled from '@emotion/styled';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { PostWithAuthor } from '@/hooks/usePosts';
+import { useIncrementDownloadCount, type PostWithAuthor } from '@/hooks/usePosts';
 import {
   usePostComments,
   useCreateComment,
@@ -270,6 +270,18 @@ const Img = styled.img`
   max-width: 100%;
   max-height: calc(100vh - 240px);
   object-fit: contain;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.25);
+  display: block;
+`;
+
+/** PDFs render via the browser's native viewer in an iframe. We size it to
+ *  fit the same envelope as <Img> so the InfoPanel and thumb strip layout
+ *  stay consistent across image / PDF posts. */
+const PdfFrame = styled.iframe`
+  width: min(900px, 92vw);
+  height: calc(100vh - 240px);
+  border: 0;
+  background: #fff;
   box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.25);
   display: block;
 `;
@@ -811,6 +823,18 @@ const Thumb = styled.button<{ active: boolean }>`
   }
 `;
 
+const ThumbPdf = styled.span`
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #fff5e6, #ffd9b3);
+  color: #5a3211;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+`;
+
 interface ViewerProps {
   posts: PostWithAuthor[];
   index: number;
@@ -881,6 +905,7 @@ export function Viewer({
   const createComment = useCreateComment();
   const updateComment = useUpdateComment();
   const deleteComment = useDeleteComment();
+  const incrementDownload = useIncrementDownloadCount();
   const totalComments = threads.reduce((acc, t) => acc + 1 + t.replies.length, 0);
 
   const handleHoverEnter = useCallback(() => {
@@ -985,9 +1010,23 @@ export function Viewer({
 
   const safeIdx = Math.min(imgIdx, Math.max(0, imageBundle.length - 1));
   const currentImageUrl = imageBundle[safeIdx] ?? '';
+  const currentIsPdf = /\.pdf(?:[?#]|$)/i.test(currentImageUrl);
 
   const initial = (post.author_nickname ?? post.title ?? '?').charAt(0).toUpperCase();
   const isLiked = !!likedPostIds?.has(post.id);
+
+  /**
+   * Edit + delete share the same gate per product spec:
+   *   1. Author can act on their own post.
+   *   2. Saved admin code grants act-on-anyone.
+   *   3. Browse mode (no auth session) is blocked entirely — even if an
+   *      admin code happens to live in localStorage, we don't trust it
+   *      without an authed user.
+   *   4. Everyone else (regular team members on someone else's post) is blocked.
+   */
+  const canEditPost =
+    !!currentUserId && (post.author_id === currentUserId || !!isAdmin);
+  const canDeletePost = canEditPost;
 
   const downloadCurrentImage = async () => {
     if (!currentImageUrl) return;
@@ -1010,6 +1049,8 @@ export function Viewer({
       a.remove();
       URL.revokeObjectURL(objectUrl);
       showToast('다운로드를 시작했어요');
+      // Best-effort counter bump — don't block the user if this fails.
+      incrementDownload.mutate(post.id);
     } catch (e) {
       showToast(`다운로드 실패: ${(e as Error).message}`, 'error');
     }
@@ -1065,11 +1106,21 @@ export function Viewer({
           onMouseEnter={handleHoverEnter}
           onMouseLeave={handleHoverLeave}
         >
-          <Img
-            src={currentImageUrl}
-            alt={post.title}
-            style={{ background: 'rgba(255,255,255,0.2)' }}
-          />
+          {currentIsPdf ? (
+            <PdfFrame
+              src={currentImageUrl}
+              title={post.title}
+              // Sandboxing the PDF viewer is overkill — PDFs are rendered by the
+              // browser's native plugin in a same-origin iframe. We intentionally
+              // do NOT pass `sandbox` so the toolbar (zoom, page nav) works.
+            />
+          ) : (
+            <Img
+              src={currentImageUrl}
+              alt={post.title}
+              style={{ background: 'rgba(255,255,255,0.2)' }}
+            />
+          )}
 
           {hasBody && (
             <InfoPanel visible={panelVisible} aria-hidden={!panelVisible}>
@@ -1096,17 +1147,20 @@ export function Viewer({
 
         {imageBundle.length > 1 && (
           <ThumbStrip>
-            {imageBundle.map((url, i) => (
-              <Thumb
-                key={url + i}
-                active={i === imgIdx}
-                onClick={() => setImgIdx(i)}
-                type="button"
-                aria-label={`이미지 ${i + 1}`}
-              >
-                <img src={url} alt="" />
-              </Thumb>
-            ))}
+            {imageBundle.map((url, i) => {
+              const isPdf = /\.pdf(?:[?#]|$)/i.test(url);
+              return (
+                <Thumb
+                  key={url + i}
+                  active={i === imgIdx}
+                  onClick={() => setImgIdx(i)}
+                  type="button"
+                  aria-label={isPdf ? `PDF ${i + 1}` : `이미지 ${i + 1}`}
+                >
+                  {isPdf ? <ThumbPdf>PDF</ThumbPdf> : <img src={url} alt="" />}
+                </Thumb>
+              );
+            })}
           </ThumbStrip>
         )}
         </ImageColumn>
@@ -1135,18 +1189,18 @@ export function Viewer({
           <ChatIcon />
           {totalComments}
         </CommentBtn>
-        <CopyBtn onClick={copyPanelContent} type="button" title="내용 복사">
-          <ClipboardIcon /> 복사
-        </CopyBtn>
         <CopyBtn
           onClick={downloadCurrentImage}
           type="button"
           title="이미지 다운로드"
           aria-label="이미지 다운로드"
         >
-          <DownloadIcon /> 다운로드
+          <DownloadIcon /> {post.download_count ?? 0}
         </CopyBtn>
-        {(post.author_id === currentUserId || isAdmin) && onUpdatePost && (
+        <CopyBtn onClick={copyPanelContent} type="button" title="내용 복사">
+          <ClipboardIcon /> 복사
+        </CopyBtn>
+        {canEditPost && onUpdatePost && (
           <EditBtn
             type="button"
             onClick={() => {
@@ -1160,7 +1214,7 @@ export function Viewer({
             <PencilIcon /> 수정
           </EditBtn>
         )}
-        {post.author_id === currentUserId && onDeletePost && (
+        {canDeletePost && onDeletePost && (
           <DeleteBtn
             type="button"
             onClick={async () => {

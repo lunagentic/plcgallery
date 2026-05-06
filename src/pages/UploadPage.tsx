@@ -1,9 +1,12 @@
 import styled from '@emotion/styled';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useCreatePostBundle } from '@/hooks/usePosts';
-import { useMoodboards } from '@/hooks/useMoodboards';
+import {
+  useMoodboards,
+  useEnsureTeamDefaultMoodboard,
+} from '@/hooks/useMoodboards';
 import { Button } from '@/components/ui/Button';
 import { Label, Field, FieldHint } from '@/components/ui/Input';
 import { SlashInput, SlashTextarea } from '@/components/SlashMenu';
@@ -14,12 +17,24 @@ import { useAuthStore } from '@/store/authStore';
 import { MOODBOARD_CATEGORIES, type MoodboardCategory } from '@/types/database';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const ACCEPTED_INPUT_ATTR =
+  'image/png,image/jpeg,image/webp,application/pdf,.pdf';
+
+function isPdfFile(file: File): boolean {
+  return (
+    file.type === 'application/pdf' ||
+    file.name.toLowerCase().endsWith('.pdf')
+  );
+}
 
 interface FileEntry {
   id: string;
   file: File;
+  /** Object URL — for images this powers <img>, for PDFs we just keep it
+   *  around so the preview tile can link to the file if needed. */
   previewUrl: string;
+  kind: 'image' | 'pdf';
 }
 
 const Container = styled.div`
@@ -124,6 +139,42 @@ const RemoveBtn = styled.button`
   place-items: center;
   &:hover {
     background: rgba(0, 0, 0, 0.9);
+  }
+`;
+
+const PdfPreview = styled.div`
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: linear-gradient(135deg, #fff5e6, #ffe1c2);
+  color: #5a3211;
+  text-align: center;
+  .badge {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    padding: 4px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(90, 50, 17, 0.2);
+  }
+  .name {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.3;
+    word-break: break-all;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    opacity: 0.85;
   }
 `;
 
@@ -319,9 +370,12 @@ export default function UploadPage() {
   const { data: moodboards = [] } = useMoodboards();
   const showToast = useUIStore((s) => s.showToast);
   const createBundle = useCreatePostBundle();
+  const ensureBoard = useEnsureTeamDefaultMoodboard();
 
   const session = useAuthStore((s) => s.session);
+  const team = useAuthStore((s) => s.team);
   const userId = session?.user.id;
+  const teamId = team?.id;
 
   const [moodboardId, setMoodboardId] = useState(paramMbId ?? '');
   const [title, setTitle] = useState('');
@@ -367,33 +421,20 @@ export default function UploadPage() {
   const totalBytes = useMemo(() => files.reduce((a, f) => a + f.file.size, 0), [files]);
   const hasOverSized = files.some((f) => f.file.size > MAX_FILE_BYTES);
 
-  const moodboardsByCategory = useMemo(() => {
-    const groups: Record<MoodboardCategory, typeof moodboards> = {
-      activities: [],
-      environment: [],
-      play: [],
-      inquiry: [],
-      parents: [],
-      annual: [],
-    };
-    for (const m of moodboards) {
-      const cat = (m.category ?? 'inquiry') as MoodboardCategory;
-      if (groups[cat]) groups[cat].push(m);
-    }
-    return groups;
-  }, [moodboards]);
-
-  // Pick the canonical (first) moodboard for each category — that's the
-  // one we upload to when the user taps a category chip. Categories with
-  // no moodboards stay disabled.
-  const defaultMoodboardByCategory = useMemo(() => {
+  // Each chip should land posts in the CALLING TEAM's own board for that
+  // category — not some other team's public board. So the picker is built
+  // from `moodboards` filtered to the current team only. Missing categories
+  // are still clickable; we'll lazily ensure-create on click.
+  const myTeamMoodboardByCategory = useMemo(() => {
     const map = {} as Partial<Record<MoodboardCategory, string>>;
-    for (const cat of MOODBOARD_CATEGORIES) {
-      const first = moodboardsByCategory[cat]?.[0];
-      if (first) map[cat] = first.id;
+    if (!teamId) return map;
+    for (const m of moodboards) {
+      if (m.team_id !== teamId || !m.is_visible) continue;
+      const cat = (m.category ?? 'inquiry') as MoodboardCategory;
+      if (!map[cat]) map[cat] = m.id;
     }
     return map;
-  }, [moodboardsByCategory]);
+  }, [moodboards, teamId]);
 
   const selectedCategory: MoodboardCategory | undefined = useMemo(() => {
     if (!moodboardId) return undefined;
@@ -401,25 +442,42 @@ export default function UploadPage() {
     return (mb?.category ?? undefined) as MoodboardCategory | undefined;
   }, [moodboardId, moodboards]);
 
-  // Auto-select recent category (or first available) once moodboards arrive.
+  // Auto-select on mount: prefer the recently-used category. If the user
+  // has never uploaded, pick whichever category their team has a board for
+  // (or none — pickCategory will create one on first click).
   useEffect(() => {
-    if (moodboardId || moodboards.length === 0) return;
+    if (moodboardId) return;
     const recent = readRecentCategory();
     const picked =
-      (recent && defaultMoodboardByCategory[recent]) ??
-      MOODBOARD_CATEGORIES.map((c) => defaultMoodboardByCategory[c]).find(Boolean);
+      (recent && myTeamMoodboardByCategory[recent]) ??
+      MOODBOARD_CATEGORIES.map((c) => myTeamMoodboardByCategory[c]).find(Boolean);
     if (picked) setMoodboardId(picked);
-  }, [moodboards, moodboardId, defaultMoodboardByCategory]);
+  }, [moodboardId, myTeamMoodboardByCategory]);
 
   const slashGroups = useMemo(
     () => buildGroupsForCategory(selectedCategory),
     [selectedCategory],
   );
 
-  const pickCategory = (cat: MoodboardCategory) => {
-    const id = defaultMoodboardByCategory[cat];
-    if (!id) return;
-    setMoodboardId(id);
+  const pickCategory = async (cat: MoodboardCategory) => {
+    if (!teamId) {
+      showToast('팀에 들어와야 업로드할 수 있어요', 'error');
+      return;
+    }
+    const existing = myTeamMoodboardByCategory[cat];
+    if (existing) {
+      setMoodboardId(existing);
+    } else {
+      try {
+        // Lazy-create the team's board for this category on first use so the
+        // user never lands posts in another team's board by accident.
+        const newId = await ensureBoard.mutateAsync(cat);
+        setMoodboardId(newId);
+      } catch (e) {
+        showToast((e as Error).message ?? '보드를 준비하지 못했어요', 'error');
+        return;
+      }
+    }
     try {
       localStorage.setItem(RECENT_CATEGORY_KEY, cat);
     } catch {
@@ -437,19 +495,23 @@ export default function UploadPage() {
     setRecentTitles(next);
   };
 
-  const addFiles = (list: FileList | null) => {
+  const addFiles = (list: FileList | File[] | null) => {
     if (!list) return;
     const accepted: FileEntry[] = [];
     const rejected: string[] = [];
-    for (const file of Array.from(list)) {
-      if (!ACCEPTED_TYPES.includes(file.type)) {
-        rejected.push(`${file.name} (형식)`);
+    const items = list instanceof FileList ? Array.from(list) : list;
+    for (const file of items) {
+      const pdf = isPdfFile(file);
+      const allowed = pdf || ACCEPTED_IMAGE_TYPES.includes(file.type);
+      if (!allowed) {
+        rejected.push(`${file.name || '(이름 없음)'} (형식)`);
         continue;
       }
       accepted.push({
         id: crypto.randomUUID(),
         file,
         previewUrl: URL.createObjectURL(file),
+        kind: pdf ? 'pdf' : 'image',
       });
     }
     setFiles((prev) => [...prev, ...accepted]);
@@ -471,6 +533,37 @@ export default function UploadPage() {
     files.forEach((f) => URL.revokeObjectURL(f.previewUrl));
     setFiles([]);
   };
+
+  // Keep the latest addFiles in a ref so the document-level paste listener
+  // doesn't re-bind on every render but still uses the freshest closure.
+  const addFilesRef = useRef(addFiles);
+  addFilesRef.current = addFiles;
+
+  /**
+   * Document-level Cmd/Ctrl+V handler. We grab any image or PDF blobs from
+   * the clipboard and route them through the same addFiles pipeline as the
+   * picker / drop zone. If the clipboard only carries text we don't touch the
+   * event, so pasting text into title / description / textarea still works.
+   */
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const picked: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.kind !== 'file') continue;
+        const f = item.getAsFile();
+        if (!f) continue;
+        if (f.type.startsWith('image/') || isPdfFile(f)) picked.push(f);
+      }
+      if (picked.length === 0) return;
+      e.preventDefault();
+      addFilesRef.current(picked);
+      showToast(`클립보드에서 ${picked.length}개 추가`);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [showToast]);
 
   const submit = async () => {
     if (!title.trim()) {
@@ -554,7 +647,7 @@ export default function UploadPage() {
           >
             <input
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept={ACCEPTED_INPUT_ATTR}
               multiple
               onChange={(e) => {
                 addFiles(e.target.files);
@@ -566,17 +659,17 @@ export default function UploadPage() {
                 <div className="plus">＋</div>
                 <div className="t">{t('upload.imageTitle')}</div>
                 <div className="s">
-                  클릭하거나 여러 장을 한 번에 드래그하세요
+                  클릭 · 드래그 · 붙여넣기(⌘/Ctrl+V) 모두 OK
                   <br />
-                  PNG, JPG, WEBP · 장당 최대 10MB
+                  PNG, JPG, WEBP, PDF · 파일당 최대 10MB
                 </div>
               </>
             ) : (
               <>
                 <div className="plus">＋</div>
-                <div className="t">이미지 추가</div>
+                <div className="t">파일 추가</div>
                 <div className="s">
-                  현재 {files.length}장 선택됨 · {(totalBytes / (1024 * 1024)).toFixed(1)}MB
+                  현재 {files.length}개 선택됨 · {(totalBytes / (1024 * 1024)).toFixed(1)}MB
                 </div>
               </>
             )}
@@ -599,7 +692,14 @@ export default function UploadPage() {
                   const over = f.file.size > MAX_FILE_BYTES;
                   return (
                     <PreviewItem key={f.id}>
-                      <img src={f.previewUrl} alt={f.file.name} />
+                      {f.kind === 'pdf' ? (
+                        <PdfPreview title={f.file.name}>
+                          <span className="badge">PDF</span>
+                          <span className="name">{f.file.name}</span>
+                        </PdfPreview>
+                      ) : (
+                        <img src={f.previewUrl} alt={f.file.name} />
+                      )}
                       <IndexBadge>
                         {idx === 0 ? '커버' : String(idx + 1).padStart(2, '0')}
                       </IndexBadge>
@@ -629,19 +729,32 @@ export default function UploadPage() {
             <Label>무드보드 선택</Label>
             <ChipRow>
               {MOODBOARD_CATEGORIES.map((cat) => {
-                const id = defaultMoodboardByCategory[cat];
-                const isSelected = !!id && moodboardId === id;
-                const isDisabled = !id;
+                // The chip is selected when the active moodboard belongs to
+                // THIS team for THIS category. We never light up a chip just
+                // because some other team has a public board for the cat.
+                const myId = myTeamMoodboardByCategory[cat];
+                const isSelected = !!myId && moodboardId === myId;
+                // Chips remain enabled even if my team has no board yet —
+                // pickCategory() will create one on click via the RPC.
+                const isPending =
+                  ensureBoard.isPending && ensureBoard.variables === cat;
                 return (
                   <MoodChip
                     key={cat}
                     type="button"
                     selected={isSelected}
-                    disabled={isDisabled}
+                    disabled={!teamId || isPending}
                     onClick={() => pickCategory(cat)}
-                    title={isDisabled ? '이 카테고리에는 무드보드가 없어요' : undefined}
+                    title={
+                      !teamId
+                        ? '팀에 들어와야 업로드할 수 있어요'
+                        : myId
+                          ? '내 팀 보드'
+                          : '클릭하면 내 팀 보드를 만들어드려요'
+                    }
                   >
                     {t(`filter.${cat}`)}
+                    {isPending ? ' …' : ''}
                   </MoodChip>
                 );
               })}

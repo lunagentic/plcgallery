@@ -421,3 +421,36 @@ export function useDeletePost() {
     },
   });
 }
+
+/**
+ * Bump `download_count` on the post when the viewer downloads its image.
+ * Open to anonymous browsers too (SECURITY DEFINER on the server side).
+ */
+export function useIncrementDownloadCount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (postId: string): Promise<number> => {
+      const { data, error } = await supabase.rpc('increment_post_download_count', {
+        p_post_id: postId,
+      });
+      if (error) throw error;
+      return (data ?? 0) as number;
+    },
+    onSuccess: (newCount, postId) => {
+      // Optimistic patch into all cached post lists so the BottomBar reflects
+      // the new count without waiting for a full re-fetch.
+      qc.setQueriesData<PostWithAuthor[]>({ queryKey: ['posts'] }, (prev) => {
+        if (!prev) return prev;
+        let touched = false;
+        const next = prev.map((p) => {
+          if (p.id === postId) {
+            touched = true;
+            return { ...p, download_count: newCount };
+          }
+          return p;
+        });
+        return touched ? next : prev;
+      });
+    },
+  });
+}

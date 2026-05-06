@@ -102,6 +102,7 @@ export interface Post {
   stage_bg: string | null;
   likes_count: number;
   views_count: number;
+  download_count: number;
   tags: string[];
   created_at: string;
   updated_at: string;

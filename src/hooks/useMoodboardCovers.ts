@@ -45,8 +45,16 @@ export function useMoodboardCovers(moodboardIds: string[]) {
         const mbId = row.moodboard_id as string;
         counts[mbId] = (counts[mbId] ?? 0) + 1;
         const list = covers[mbId];
-        if (list && list.length < COVERS_PER_BOARD && row.image_path) {
-          const url = getPublicImageUrl(row.image_path as string);
+        const path = row.image_path as string | null;
+        // Skip PDF covers in the collage — only real images make sense in the
+        // grid. The post itself still counts toward the board's total.
+        if (
+          list &&
+          list.length < COVERS_PER_BOARD &&
+          path &&
+          !/\.pdf(?:[?#]|$)/i.test(path)
+        ) {
+          const url = getPublicImageUrl(path);
           if (url) list.push(url);
         }
       }

@@ -101,6 +101,27 @@ export function useCreateMoodboard() {
   });
 }
 
+/**
+ * Resolve the calling user's team's default moodboard for a category,
+ * creating it if it doesn't exist yet. Used by the upload flow so picking
+ * a category chip always lands posts in the user's OWN team's board.
+ */
+export function useEnsureTeamDefaultMoodboard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (category: MoodboardCategory): Promise<string> => {
+      const { data, error } = await supabase.rpc('ensure_team_default_moodboard', {
+        p_category: category,
+      });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['moodboards'] });
+    },
+  });
+}
+
 export function useMoodboard(id: string | undefined) {
   return useQuery({
     queryKey: ['moodboard', id],

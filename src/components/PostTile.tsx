@@ -49,6 +49,36 @@ const EmptyStage = styled.div<{ bg: string }>`
   background: ${({ bg }) => bg};
 `;
 
+const PdfCover = styled.div`
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #fff5e6, #ffd9b3);
+  color: #5a3211;
+  .badge {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 28px;
+    letter-spacing: 0.06em;
+    padding: 4px 18px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(90, 50, 17, 0.18);
+  }
+  .label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0.65;
+  }
+`;
+
 const Overlay = styled.div`
   position: absolute;
   inset: 0;
@@ -221,11 +251,17 @@ export function PostTile({
 
   const bundleSize = post.image_paths?.length ?? 0;
   const isBundle = bundleSize > 1;
+  const coverIsPdf = !!post.image_path && /\.pdf(?:[?#]|$)/i.test(post.image_path);
 
   return (
     <Card delay={index * 40}>
       <Tile onClick={onClick} aria-label={post.title}>
-        {url ? (
+        {coverIsPdf ? (
+          <PdfCover>
+            <span className="badge">PDF</span>
+            <span className="label">문서</span>
+          </PdfCover>
+        ) : url ? (
           <Img src={url} alt={post.title} loading="lazy" />
         ) : (
           <EmptyStage bg={stage} />
