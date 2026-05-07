@@ -8,6 +8,8 @@ import {
   useCreateComment,
   useUpdateComment,
   useDeleteComment,
+  useToggleCommentLike,
+  useMyLikedCommentIds,
   type CommentRow,
 } from '@/hooks/useComments';
 import { getPublicImageUrl } from '@/lib/supabase';
@@ -793,6 +795,14 @@ const CommentItem = styled.div<{ depth: number }>`
   .actions button.danger {
     color: #fca5a5;
   }
+  .actions button.liked {
+    color: #ffb7a4;
+    background: rgba(226, 114, 91, 0.18);
+  }
+  .actions button.liked:hover {
+    color: #ffd1c2;
+    background: rgba(226, 114, 91, 0.28);
+  }
   .actions button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
@@ -1072,9 +1082,13 @@ export function Viewer({
   const post = posts[index];
 
   const { data: threads = [] } = usePostComments(commentsOpen ? post?.id : undefined);
+  const { data: likedCommentIds } = useMyLikedCommentIds(
+    commentsOpen ? post?.id : undefined,
+  );
   const createComment = useCreateComment();
   const updateComment = useUpdateComment();
   const deleteComment = useDeleteComment();
+  const toggleCommentLike = useToggleCommentLike();
   const incrementDownload = useIncrementDownloadCount();
   const totalComments = threads.reduce((acc, t) => acc + 1 + t.replies.length, 0);
 
@@ -1604,6 +1618,7 @@ export function Viewer({
                 isAdmin={!!isAdmin}
                 editingId={editingCommentId}
                 editingDraft={editingDraft}
+                likedCommentIds={likedCommentIds ?? new Set()}
                 onStartEdit={(c) => {
                   setEditingCommentId(c.id);
                   setEditingDraft(c.content);
@@ -1642,6 +1657,17 @@ export function Viewer({
                 onReply={(c) =>
                   setReplyTo({ id: c.id, nickname: c.author_nickname ?? '작가' })
                 }
+                onToggleLike={(c) => {
+                  if (!currentUserId) {
+                    showToast('좋아요는 로그인 후에 가능해요', 'error');
+                    return;
+                  }
+                  toggleCommentLike
+                    .mutateAsync({ commentId: c.id, postId: post.id })
+                    .catch((e) => {
+                      showToast((e as Error).message ?? '실패', 'error');
+                    });
+                }}
               />
             ))
           )}
@@ -1793,12 +1819,14 @@ interface CommentThreadProps {
   isAdmin: boolean;
   editingId: string | null;
   editingDraft: string;
+  likedCommentIds: Set<string>;
   onStartEdit: (c: CommentRow) => void;
   onCancelEdit: () => void;
   onChangeEdit: (next: string) => void;
   onSaveEdit: (c: CommentRow) => void;
   onDelete: (c: CommentRow, asAdmin: boolean) => void;
   onReply: (c: CommentRow) => void;
+  onToggleLike: (c: CommentRow) => void;
 }
 
 function CommentThread({
@@ -1807,12 +1835,14 @@ function CommentThread({
   isAdmin,
   editingId,
   editingDraft,
+  likedCommentIds,
   onStartEdit,
   onCancelEdit,
   onChangeEdit,
   onSaveEdit,
   onDelete,
   onReply,
+  onToggleLike,
 }: CommentThreadProps) {
   const renderRow = (c: CommentRow, depth: 0 | 1) => {
     const isOwn = !!currentUserId && c.author_id === currentUserId;
@@ -1860,6 +1890,23 @@ function CommentThread({
         )}
         {!editing && (
           <div className="actions">
+            <button
+              type="button"
+              className={likedCommentIds.has(c.id) ? 'liked' : ''}
+              onClick={() => onToggleLike(c)}
+              disabled={!currentUserId}
+              title={
+                !currentUserId
+                  ? '좋아요는 로그인 후에 가능해요'
+                  : likedCommentIds.has(c.id)
+                    ? '좋아요 취소'
+                    : '좋아요'
+              }
+              aria-pressed={likedCommentIds.has(c.id)}
+            >
+              {likedCommentIds.has(c.id) ? <HeartFilledIcon /> : <HeartOutlineIcon />}
+              {c.likes_count > 0 ? ` ${c.likes_count}` : ''}
+            </button>
             {depth === 0 && currentUserId && (
               <button
                 type="button"

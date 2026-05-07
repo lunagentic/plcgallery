@@ -12,6 +12,7 @@ export interface CommentRow {
   author_id: string;
   content: string;
   is_edited: boolean;
+  likes_count: number;
   created_at: string;
   updated_at: string;
   /** Resolved client-side. Null when no nickname is available. */
@@ -121,6 +122,73 @@ export function useCreateComment() {
     },
     onSuccess: (row) => {
       qc.invalidateQueries({ queryKey: ['post-comments', row.post_id] });
+    },
+  });
+}
+
+/** Set of comment ids the current user has liked, scoped to one post. */
+export function useMyLikedCommentIds(postId: string | undefined) {
+  return useQuery({
+    queryKey: ['my-liked-comments', postId],
+    enabled: !!postId,
+    queryFn: async (): Promise<Set<string>> => {
+      if (!postId) return new Set();
+      const { data: sess } = await supabase.auth.getSession();
+      const userId = sess.session?.user.id;
+      if (!userId) return new Set();
+      // Select via inner-joined post_comments to scope to this post.
+      const { data, error } = await supabase
+        .from('comment_likes')
+        .select('comment_id, post_comments!inner(post_id)')
+        .eq('user_id', userId)
+        .eq('post_comments.post_id', postId);
+      if (error) throw error;
+      return new Set(
+        (data ?? []).map((r) => (r as { comment_id: string }).comment_id),
+      );
+    },
+  });
+}
+
+/**
+ * Toggle the like on a comment. Returns the new (liked, count) state.
+ * Optimistically updates both the comment list cache (for the count
+ * shown next to the heart) and the my-liked-comments set (for the
+ * filled-vs-outline glyph).
+ */
+export function useToggleCommentLike() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { commentId: string; postId: string }) => {
+      const { data, error } = await supabase.rpc('toggle_comment_like', {
+        p_comment_id: input.commentId,
+      });
+      if (error) throw error;
+      const row = (Array.isArray(data) ? data[0] : data) as {
+        liked: boolean;
+        likes_count: number;
+      };
+      return { ...input, ...row };
+    },
+    onSuccess: ({ commentId, postId, liked, likes_count }) => {
+      // Patch the count on the cached comment list so the heart label
+      // updates immediately without a re-fetch.
+      qc.setQueryData<ThreadedComment[]>(['post-comments', postId], (prev) => {
+        if (!prev) return prev;
+        const apply = (c: CommentRow): CommentRow =>
+          c.id === commentId ? { ...c, likes_count } : c;
+        return prev.map((t) => ({
+          ...apply(t),
+          replies: t.replies.map(apply),
+        }));
+      });
+      // Toggle membership in my-liked set.
+      qc.setQueryData<Set<string>>(['my-liked-comments', postId], (prev) => {
+        const next = new Set(prev ?? []);
+        if (liked) next.add(commentId);
+        else next.delete(commentId);
+        return next;
+      });
     },
   });
 }
