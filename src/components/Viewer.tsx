@@ -582,15 +582,14 @@ const CommentPanel = styled.aside<{ open: boolean }>`
  *  bottom-bar comment button. */
 const PanelCollapseHandle = styled.button<{ open: boolean }>`
   position: fixed;
-  /* Sit ~70px below the NavBtn (which is centered at 50% with a 52px
-   *  height) so the panel handle never overlaps the right photo
-   *  navigation arrow. */
-  top: calc(50% + 70px);
+  /* Top-right anchor: tucked just below the TopBar (~88px) so the
+   *  handle reads as a drawer-toggle for the right sidebar without
+   *  competing with NavBtn (centered) or BottomBar (bottom). */
+  top: 110px;
   right: ${({ open }) => (open ? '380px' : '0')};
-  transform: translateY(-50%);
   z-index: 15;
   width: 26px;
-  height: 64px;
+  height: 56px;
   border: 0;
   border-top-left-radius: 10px;
   border-bottom-left-radius: 10px;
