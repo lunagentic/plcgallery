@@ -1529,17 +1529,24 @@ export function Viewer({
         </EditBackdrop>
       )}
 
-      <PanelCollapseHandle
-        type="button"
-        open={commentsOpen}
-        onClick={() => setCommentsOpen((v) => !v)}
-        aria-label={commentsOpen ? '패널 접기' : '패널 펼치기'}
-        title={commentsOpen ? '패널 접기' : '패널 펼치기'}
-        aria-expanded={commentsOpen}
-        aria-controls="viewer-comment-panel"
-      >
-        {commentsOpen ? '▶' : '◀'}
-      </PanelCollapseHandle>
+      {/* Close-only handle on the panel's left edge. We don't render an
+       *  open variant because the panel is already reachable from the
+       *  BottomBar 💬 button and from any "더보기" link in the on-image
+       *  InfoPanel — a separate viewport-edge open button just adds
+       *  visual noise to a closed viewer. */}
+      {commentsOpen && (
+        <PanelCollapseHandle
+          type="button"
+          open={commentsOpen}
+          onClick={() => setCommentsOpen(false)}
+          aria-label="패널 접기"
+          title="패널 접기"
+          aria-expanded={commentsOpen}
+          aria-controls="viewer-comment-panel"
+        >
+          ▶
+        </PanelCollapseHandle>
+      )}
       <CommentPanel id="viewer-comment-panel" open={commentsOpen} aria-hidden={!commentsOpen}>
         {hasBody && post.description && post.description.length > PANEL_DESC_TRUNCATE && (
           <DetailsToggle
