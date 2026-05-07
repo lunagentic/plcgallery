@@ -180,7 +180,7 @@ export function Topbar() {
       <Inner>
         <Logo to={homeTo}>
           <span>
-            <em>PLC</em> 갤러리
+            KinderBoard <em>PLC</em>
           </span>
         </Logo>
         <Nav>
