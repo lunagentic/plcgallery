@@ -575,6 +575,42 @@ const CommentPanel = styled.aside<{ open: boolean }>`
   }
 `;
 
+/** Floating chevron handle anchored to the left edge of the comment
+ *  panel. Toggles the entire panel open/closed. Stays visible when the
+ *  panel is closed (sticks to the right viewport edge) so users always
+ *  have a panel-level reopen affordance without going back to the
+ *  bottom-bar comment button. */
+const PanelCollapseHandle = styled.button<{ open: boolean }>`
+  position: fixed;
+  top: 50%;
+  right: ${({ open }) => (open ? '380px' : '0')};
+  transform: translateY(-50%);
+  z-index: 15;
+  width: 26px;
+  height: 64px;
+  border: 0;
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+  background: rgba(12, 10, 8, 0.62);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: -6px 0 16px -8px rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    right 280ms cubic-bezier(0.2, 0.85, 0.25, 1),
+    background 0.15s ease;
+  &:hover {
+    background: rgba(12, 10, 8, 0.82);
+  }
+  @media (max-width: 700px) {
+    right: ${({ open }) => (open ? 'calc(100vw - 12px)' : '0')};
+  }
+`;
+
 /** Sidebar toggle for the details panel. Pinned at the top of the
  *  sidebar when the post has body content; clicking it expands or
  *  collapses the panel below. Renders as a minimal chevron-only handle —
@@ -1032,15 +1068,10 @@ export function Viewer({
   const [editTags, setEditTags] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  // True when the user clicks "더보기" on a long description — pins the
-  // expanded "내용 자세히" section at the top of the comment sidebar so
-  // they can read the full text alongside (not over) the image.
-  const [sidebarDetailsOpen, setSidebarDetailsOpen] = useState(false);
-  // Collapses the comment list (and compose) section in the sidebar so
-  // the user can focus on the details panel without dismissing the
-  // sidebar entirely. Toggle lives in the comment header, mirrors the
-  // details chevron pattern.
-  const [commentsListOpen, setCommentsListOpen] = useState(true);
+  // Whether the sidebar's details section shows the full description.
+  // Default true (full view). When false, descriptions over 150 chars
+  // truncate with an inline 더보기 button; tip + tags stay visible.
+  const [detailsExpanded, setDetailsExpanded] = useState(true);
   const [composeText, setComposeText] = useState('');
   const [replyTo, setReplyTo] = useState<{ id: string; nickname: string | null } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -1090,8 +1121,7 @@ export function Viewer({
     setEditingCommentId(null);
     setEditingDraft('');
     setComposeText('');
-    setSidebarDetailsOpen(false);
-    setCommentsListOpen(true);
+    setDetailsExpanded(true);
   }, [index]);
 
   // Hide the on-image InfoPanel as soon as the sidebar opens — the same
@@ -1310,7 +1340,7 @@ export function Viewer({
                     <InlineMoreBtn
                       type="button"
                       onClick={() => {
-                        setSidebarDetailsOpen(true);
+                        setDetailsExpanded(true);
                         setCommentsOpen(true);
                       }}
                     >
@@ -1497,26 +1527,50 @@ export function Viewer({
         </EditBackdrop>
       )}
 
-      <CommentPanel open={commentsOpen} aria-hidden={!commentsOpen}>
-        {hasBody && (
+      <PanelCollapseHandle
+        type="button"
+        open={commentsOpen}
+        onClick={() => setCommentsOpen((v) => !v)}
+        aria-label={commentsOpen ? '패널 접기' : '패널 펼치기'}
+        title={commentsOpen ? '패널 접기' : '패널 펼치기'}
+        aria-expanded={commentsOpen}
+        aria-controls="viewer-comment-panel"
+      >
+        {commentsOpen ? '▶' : '◀'}
+      </PanelCollapseHandle>
+      <CommentPanel id="viewer-comment-panel" open={commentsOpen} aria-hidden={!commentsOpen}>
+        {hasBody && post.description && post.description.length > PANEL_DESC_TRUNCATE && (
           <DetailsToggle
             type="button"
-            onClick={() => setSidebarDetailsOpen((v) => !v)}
-            aria-expanded={sidebarDetailsOpen}
+            onClick={() => setDetailsExpanded((v) => !v)}
+            aria-expanded={detailsExpanded}
             aria-controls="viewer-details-panel"
-            aria-label={sidebarDetailsOpen ? '내용 접기' : '내용 펼치기'}
-            title={sidebarDetailsOpen ? '내용 접기' : '내용 펼치기'}
+            aria-label={detailsExpanded ? '내용 접기' : '내용 펼치기'}
+            title={detailsExpanded ? '내용 접기' : '내용 펼치기'}
           >
             {/* Two distinct glyphs (no rotate transform) so the arrow is
-             *  always upright — flipping a single char with rotate(180deg)
-             *  also flipped any future text alongside it. */}
-            {sidebarDetailsOpen ? '▴' : '▾'}
+             *  always upright. ▴ = currently expanded, click to collapse. */}
+            {detailsExpanded ? '▴' : '▾'}
           </DetailsToggle>
         )}
-        {sidebarDetailsOpen && hasBody && (
+        {hasBody && (
           <SidebarDetails id="viewer-details-panel" aria-label="게시물 상세 내용">
             {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
-            {post.description && <p className="desc">{post.description}</p>}
+            {post.description && (
+              detailsExpanded || post.description.length <= PANEL_DESC_TRUNCATE ? (
+                <p className="desc">{post.description}</p>
+              ) : (
+                <p className="desc">
+                  {post.description.slice(0, PANEL_DESC_TRUNCATE).trimEnd()}…{' '}
+                  <InlineMoreBtn
+                    type="button"
+                    onClick={() => setDetailsExpanded(true)}
+                  >
+                    더보기
+                  </InlineMoreBtn>
+                </p>
+              )
+            )}
             {post.tags && post.tags.length > 0 && (
               <div className="tags">
                 {post.tags.map((tag) => (
@@ -1531,20 +1585,8 @@ export function Viewer({
           <h2>
             댓글<span className="count">{totalComments}</span>
           </h2>
-          <button
-            type="button"
-            className="chev"
-            onClick={() => setCommentsListOpen((v) => !v)}
-            aria-expanded={commentsListOpen}
-            aria-controls="viewer-comments-list"
-            aria-label={commentsListOpen ? '댓글 접기' : '댓글 펼치기'}
-            title={commentsListOpen ? '댓글 접기' : '댓글 펼치기'}
-          >
-            {commentsListOpen ? '▴' : '▾'}
-          </button>
         </CommentHeader>
 
-        {commentsListOpen && (
         <CommentList id="viewer-comments-list">
           {threads.length === 0 ? (
             <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 12, padding: '32px 0' }}>
@@ -1601,9 +1643,7 @@ export function Viewer({
             ))
           )}
         </CommentList>
-        )}
 
-        {commentsListOpen && (
         <CommentCompose
           onSubmit={async (e) => {
             e.preventDefault();
@@ -1672,7 +1712,6 @@ export function Viewer({
             </button>
           </div>
         </CommentCompose>
-        )}
       </CommentPanel>
     </Overlay>
   );
