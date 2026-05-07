@@ -2,6 +2,7 @@ import styled from '@emotion/styled';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useIncrementDownloadCount, type PostWithAuthor } from '@/hooks/usePosts';
+import { PdfThumbnail } from '@/components/PdfThumbnail';
 import {
   usePostComments,
   useCreateComment,
@@ -999,17 +1000,6 @@ const Thumb = styled.button<{ active: boolean }>`
   }
 `;
 
-const ThumbPdf = styled.span`
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #fff5e6, #ffd9b3);
-  color: #5a3211;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-`;
 
 interface ViewerProps {
   posts: PostWithAuthor[];
@@ -1361,6 +1351,9 @@ export function Viewer({
           <ThumbStrip>
             {imageBundle.map((url, i) => {
               const isPdf = /\.pdf(?:[?#]|$)/i.test(url);
+              const thumbUrl = isPdf
+                ? url.replace(/\.pdf(?=[?#]|$)/i, '.pdf.thumb.jpg')
+                : url;
               return (
                 <Thumb
                   key={url + i}
@@ -1370,9 +1363,10 @@ export function Viewer({
                   aria-label={isPdf ? `PDF ${i + 1}` : `이미지 ${i + 1}`}
                 >
                   {isPdf ? (
-                    // Try the rendered thumbnail; fall back to the PDF badge
-                    // when the thumb 404s (legacy posts without a companion).
-                    <PdfThumbImage url={url} />
+                    <PdfThumbnail
+                      thumbUrl={thumbUrl === url ? null : thumbUrl}
+                      size="sm"
+                    />
                   ) : (
                     <img src={url} alt="" />
                   )}
@@ -1805,17 +1799,6 @@ interface CommentThreadProps {
   onSaveEdit: (c: CommentRow) => void;
   onDelete: (c: CommentRow, asAdmin: boolean) => void;
   onReply: (c: CommentRow) => void;
-}
-
-/** Tries to render the auto-generated `.thumb.jpg` companion of a PDF.
- *  Falls back to the PDF badge for legacy posts that never had a thumb. */
-function PdfThumbImage({ url }: { url: string }) {
-  const [broken, setBroken] = useState(false);
-  // url here is the resolved PDF public URL — append `.thumb.jpg` to its
-  // path component, preserving any signed-token query.
-  const thumbUrl = url.replace(/\.pdf(?=[?#]|$)/i, '.pdf.thumb.jpg');
-  if (broken || thumbUrl === url) return <ThumbPdf>PDF</ThumbPdf>;
-  return <img src={thumbUrl} alt="" onError={() => setBroken(true)} />;
 }
 
 function CommentThread({

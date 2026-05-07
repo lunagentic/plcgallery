@@ -12,6 +12,7 @@ import { Label, Field, FieldHint } from '@/components/ui/Input';
 import { SlashInput, SlashTextarea } from '@/components/SlashMenu';
 import { buildGroupsForCategory } from '@/components/SlashMenu/commands';
 import { TagInput } from '@/components/TagInput';
+import { PdfThumbnail } from '@/components/PdfThumbnail';
 import { useUIStore } from '@/store/uiStore';
 import { useAuthStore } from '@/store/authStore';
 import { MOODBOARD_CATEGORIES, type MoodboardCategory } from '@/types/database';
@@ -140,42 +141,6 @@ const RemoveBtn = styled.button`
   place-items: center;
   &:hover {
     background: rgba(0, 0, 0, 0.9);
-  }
-`;
-
-const PdfPreview = styled.div`
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px;
-  background: linear-gradient(135deg, #fff5e6, #ffe1c2);
-  color: #5a3211;
-  text-align: center;
-  .badge {
-    font-family: 'Fraunces', serif;
-    font-style: italic;
-    font-weight: 700;
-    font-size: 22px;
-    letter-spacing: 0.04em;
-    padding: 4px 14px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(90, 50, 17, 0.2);
-  }
-  .name {
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.3;
-    word-break: break-all;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    opacity: 0.85;
   }
 `;
 
@@ -770,10 +735,9 @@ export default function UploadPage() {
                   return (
                     <PreviewItem key={f.id}>
                       {f.kind === 'pdf' ? (
-                        <PdfPreview title={f.file.name}>
-                          <span className="badge">PDF</span>
-                          <span className="name">{f.file.name}</span>
-                        </PdfPreview>
+                        // No rendered thumb yet (we render on upload), so
+                        // PdfThumbnail falls back to its placeholder visual.
+                        <PdfThumbnail thumbUrl={null} alt={f.file.name} size="md" />
                       ) : (
                         <img src={f.previewUrl} alt={f.file.name} />
                       )}

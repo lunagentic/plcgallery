@@ -1,7 +1,8 @@
 import styled from '@emotion/styled';
-import { useState, type MouseEvent } from 'react';
+import { type MouseEvent } from 'react';
 import { getDisplayImageUrl, getPublicImageUrl } from '@/lib/supabase';
 import type { PostWithAuthor } from '@/hooks/usePosts';
+import { PdfThumbnail } from '@/components/PdfThumbnail';
 
 const Card = styled.div<{ delay: number }>`
   display: flex;
@@ -47,36 +48,6 @@ const EmptyStage = styled.div<{ bg: string }>`
   width: 100%;
   height: 100%;
   background: ${({ bg }) => bg};
-`;
-
-const PdfCover = styled.div`
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: linear-gradient(135deg, #fff5e6, #ffd9b3);
-  color: #5a3211;
-  .badge {
-    font-family: 'Fraunces', serif;
-    font-style: italic;
-    font-weight: 700;
-    font-size: 28px;
-    letter-spacing: 0.06em;
-    padding: 4px 18px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(90, 50, 17, 0.18);
-  }
-  .label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    opacity: 0.65;
-  }
 `;
 
 const Overlay = styled.div`
@@ -251,28 +222,20 @@ export function PostTile({
   const bundleSize = post.image_paths?.length ?? 0;
   const isBundle = bundleSize > 1;
   const coverIsPdf = !!post.image_path && /\.pdf(?:[?#]|$)/i.test(post.image_path);
-  // For PDFs: render the auto-generated thumbnail companion. If it 404s
-  // (legacy PDFs without thumbs) fall back to the badge card via onError.
+  // For PDFs we delegate the entire visual to <PdfThumbnail>, which
+  // handles the rendered first-page JPEG, legacy fallback, and the
+  // unified "PDF" badge in one shared component.
   const url = coverIsPdf
     ? getDisplayImageUrl(post.image_path)
     : getPublicImageUrl(post.image_path);
-  const [thumbBroken, setThumbBroken] = useState(false);
 
   return (
     <Card delay={index * 40}>
       <Tile onClick={onClick} aria-label={post.title}>
-        {coverIsPdf && thumbBroken ? (
-          <PdfCover>
-            <span className="badge">PDF</span>
-            <span className="label">문서</span>
-          </PdfCover>
+        {coverIsPdf ? (
+          <PdfThumbnail thumbUrl={url} alt={post.title} size="lg" />
         ) : url ? (
-          <Img
-            src={url}
-            alt={post.title}
-            loading="lazy"
-            onError={coverIsPdf ? () => setThumbBroken(true) : undefined}
-          />
+          <Img src={url} alt={post.title} loading="lazy" />
         ) : (
           <EmptyStage bg={stage} />
         )}
