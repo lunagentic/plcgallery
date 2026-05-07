@@ -552,11 +552,19 @@ const CommentPanel = styled.aside<{ open: boolean }>`
   z-index: 13;
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  border-left: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: -10px 0 28px -16px rgba(0, 0, 0, 0.2);
+  /* Glass-overlay style — matches the on-image InfoPanel "투명창" so the
+   *  whole sidebar reads as one transparent surface that floats above the
+   *  artwork. */
+  background: linear-gradient(
+    to bottom,
+    rgba(12, 10, 8, 0.72) 0%,
+    rgba(12, 10, 8, 0.62) 100%
+  );
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: -10px 0 28px -16px rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.92);
   transform: translateX(${({ open }) => (open ? '0' : '105%')});
   transition: transform 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
   @media (max-width: 900px) {
@@ -567,37 +575,27 @@ const CommentPanel = styled.aside<{ open: boolean }>`
   }
 `;
 
-/** Sidebar header for the "내용 자세히" toggle. Always present at the top
- *  of the sidebar when the post has body content; clicking it expands or
- *  collapses the detail panel below it. */
-const DetailsToggle = styled.button<{ expanded: boolean }>`
+/** Sidebar toggle for the details panel. Pinned at the top of the
+ *  sidebar when the post has body content; clicking it expands or
+ *  collapses the panel below. Renders as a minimal chevron-only handle —
+ *  no label text — so the sidebar reads like a clean reading surface. */
+const DetailsToggle = styled.button`
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: center;
   width: 100%;
-  padding: 12px 18px;
+  padding: 8px 18px;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
-  text-align: left;
   flex-shrink: 0;
-  .label {
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    color: #1a1714;
-  }
-  .chev {
-    font-size: 11px;
-    font-weight: 800;
-    color: rgba(26, 23, 20, 0.55);
-    transform: rotate(${({ expanded }) => (expanded ? '180deg' : '0deg')});
-    transition: transform 200ms ease;
-  }
+  font-size: 14px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.6);
   &:hover {
-    background: rgba(0, 0, 0, 0.03);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.95);
   }
 `;
 
@@ -609,14 +607,9 @@ const SidebarDetails = styled.section`
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  background: linear-gradient(
-    to bottom,
-    rgba(12, 10, 8, 0.78) 0%,
-    rgba(12, 10, 8, 0.62) 100%
-  );
-  backdrop-filter: blur(14px) saturate(130%);
-  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  /* Slightly darker than the parent panel so the section visually nests. */
+  background: rgba(0, 0, 0, 0.18);
   max-height: 50%;
   overflow-y: auto;
   flex-shrink: 0;
@@ -655,22 +648,37 @@ const SidebarDetails = styled.section`
 `;
 
 const CommentHeader = styled.header`
-  padding: 16px 18px;
+  padding: 14px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
   h2 {
     margin: 0;
     font-size: 14px;
     font-weight: 700;
-    color: #1a1714;
+    color: rgba(255, 255, 255, 0.95);
   }
   .count {
     font-size: 12px;
-    color: rgba(26, 23, 20, 0.55);
+    color: rgba(255, 255, 255, 0.6);
     margin-left: 6px;
     font-variant-numeric: tabular-nums;
+  }
+  .chev {
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.65);
+    cursor: pointer;
+    &:hover {
+      background: rgba(255, 255, 255, 0.10);
+      color: rgba(255, 255, 255, 0.95);
+    }
   }
 `;
 
@@ -687,11 +695,11 @@ const CommentItem = styled.div<{ depth: number }>`
   margin-left: ${({ depth }) => (depth > 0 ? '24px' : '0')};
   padding: 10px 12px;
   background: ${({ depth }) =>
-    depth > 0 ? 'rgba(26, 23, 20, 0.04)' : 'transparent'};
+    depth > 0 ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.04)'};
   border-radius: 12px;
   border: 1px solid
     ${({ depth }) =>
-      depth > 0 ? 'transparent' : 'rgba(26, 23, 20, 0.08)'};
+      depth > 0 ? 'transparent' : 'rgba(255, 255, 255, 0.10)'};
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -707,17 +715,17 @@ const CommentItem = styled.div<{ depth: number }>`
     gap: 6px;
     font-size: 12px;
     font-weight: 700;
-    color: #1a1714;
+    color: rgba(255, 255, 255, 0.95);
   }
   .when {
     font-size: 11px;
-    color: rgba(26, 23, 20, 0.5);
+    color: rgba(255, 255, 255, 0.55);
     font-weight: 500;
   }
   .body {
     font-size: 13px;
     line-height: 1.55;
-    color: rgba(26, 23, 20, 0.86);
+    color: rgba(255, 255, 255, 0.88);
     white-space: pre-wrap;
     word-break: keep-all;
   }
@@ -732,7 +740,7 @@ const CommentItem = styled.div<{ depth: number }>`
     padding: 2px 6px;
     font-size: 11px;
     font-weight: 600;
-    color: rgba(26, 23, 20, 0.55);
+    color: rgba(255, 255, 255, 0.65);
     cursor: pointer;
     border-radius: 6px;
     display: inline-flex;
@@ -740,11 +748,11 @@ const CommentItem = styled.div<{ depth: number }>`
     gap: 3px;
   }
   .actions button:hover {
-    color: #1a1714;
-    background: rgba(26, 23, 20, 0.06);
+    color: #fff;
+    background: rgba(255, 255, 255, 0.10);
   }
   .actions button.danger {
-    color: #b91c1c;
+    color: #fca5a5;
   }
   .actions button:disabled {
     opacity: 0.4;
@@ -753,7 +761,7 @@ const CommentItem = styled.div<{ depth: number }>`
 `;
 
 const CommentCompose = styled.form`
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -763,16 +771,23 @@ const CommentCompose = styled.form`
     min-height: 60px;
     max-height: 160px;
     border-radius: 10px;
-    border: 1px solid ${({ theme }) => theme.border};
-    background: ${({ theme }) => theme.surface};
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
     padding: 10px 12px;
     font-size: 13px;
     line-height: 1.5;
     font-family: inherit;
-    color: ${({ theme }) => theme.text};
+    color: rgba(255, 255, 255, 0.95);
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.45);
+    }
     &:focus {
       outline: none;
-      border-color: ${({ theme }) => theme.brand};
+      border-color: rgba(255, 174, 92, 0.7);
+      background: rgba(255, 255, 255, 0.12);
+    }
+    &:disabled {
+      opacity: 0.55;
     }
   }
   .row {
@@ -781,7 +796,7 @@ const CommentCompose = styled.form`
     justify-content: space-between;
     gap: 8px;
     font-size: 11px;
-    color: rgba(26, 23, 20, 0.55);
+    color: rgba(255, 255, 255, 0.55);
   }
   button.send {
     padding: 8px 14px;
@@ -803,9 +818,10 @@ const CommentCompose = styled.form`
     gap: 6px;
     font-size: 11px;
     font-weight: 600;
-    color: ${({ theme }) => theme.brand};
-    background: ${({ theme }) => theme.brandSoft};
-    padding: 4px 8px;
+    color: rgba(255, 220, 180, 0.95);
+    background: rgba(255, 174, 92, 0.22);
+    border: 1px solid rgba(255, 174, 92, 0.35);
+    padding: 4px 10px;
     border-radius: 999px;
   }
   .replying button {
@@ -1020,6 +1036,11 @@ export function Viewer({
   // expanded "내용 자세히" section at the top of the comment sidebar so
   // they can read the full text alongside (not over) the image.
   const [sidebarDetailsOpen, setSidebarDetailsOpen] = useState(false);
+  // Collapses the comment list (and compose) section in the sidebar so
+  // the user can focus on the details panel without dismissing the
+  // sidebar entirely. Toggle lives in the comment header, mirrors the
+  // details chevron pattern.
+  const [commentsListOpen, setCommentsListOpen] = useState(true);
   const [composeText, setComposeText] = useState('');
   const [replyTo, setReplyTo] = useState<{ id: string; nickname: string | null } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -1036,13 +1057,19 @@ export function Viewer({
 
   const handleHoverEnter = useCallback(() => {
     if (manualClosed) return;
+    // While the comment sidebar is open the same content is already shown
+    // there (or one click away via the details toggle) — popping the on-
+    // image InfoPanel as well duplicates info and partially covers the
+    // image. Suppress the hover-open path entirely in that case.
+    if (commentsOpen) return;
     setPanelVisible(true);
-  }, [manualClosed]);
+  }, [manualClosed, commentsOpen]);
 
   const handleHoverLeave = useCallback(() => {
     if (manualClosed) return;
+    if (commentsOpen) return;
     setPanelVisible(false);
-  }, [manualClosed]);
+  }, [manualClosed, commentsOpen]);
 
   const handleClosePanel = useCallback(() => {
     setPanelVisible(false);
@@ -1064,7 +1091,15 @@ export function Viewer({
     setEditingDraft('');
     setComposeText('');
     setSidebarDetailsOpen(false);
+    setCommentsListOpen(true);
   }, [index]);
+
+  // Hide the on-image InfoPanel as soon as the sidebar opens — the same
+  // content lives in the sidebar's details section, so showing both at
+  // once is redundant noise.
+  useEffect(() => {
+    if (commentsOpen) setPanelVisible(false);
+  }, [commentsOpen]);
 
   const copyPanelContent = async () => {
     if (!post) return;
@@ -1466,13 +1501,16 @@ export function Viewer({
         {hasBody && (
           <DetailsToggle
             type="button"
-            expanded={sidebarDetailsOpen}
             onClick={() => setSidebarDetailsOpen((v) => !v)}
             aria-expanded={sidebarDetailsOpen}
             aria-controls="viewer-details-panel"
+            aria-label={sidebarDetailsOpen ? '내용 접기' : '내용 펼치기'}
+            title={sidebarDetailsOpen ? '내용 접기' : '내용 펼치기'}
           >
-            <span className="label">내용 자세히</span>
-            <span className="chev">{sidebarDetailsOpen ? '접기 ▴' : '펼치기 ▾'}</span>
+            {/* Two distinct glyphs (no rotate transform) so the arrow is
+             *  always upright — flipping a single char with rotate(180deg)
+             *  also flipped any future text alongside it. */}
+            {sidebarDetailsOpen ? '▴' : '▾'}
           </DetailsToggle>
         )}
         {sidebarDetailsOpen && hasBody && (
@@ -1493,14 +1531,23 @@ export function Viewer({
           <h2>
             댓글<span className="count">{totalComments}</span>
           </h2>
-          <RoundBtn onClick={() => setCommentsOpen(false)} aria-label="댓글 닫기">
-            <CloseIcon />
-          </RoundBtn>
+          <button
+            type="button"
+            className="chev"
+            onClick={() => setCommentsListOpen((v) => !v)}
+            aria-expanded={commentsListOpen}
+            aria-controls="viewer-comments-list"
+            aria-label={commentsListOpen ? '댓글 접기' : '댓글 펼치기'}
+            title={commentsListOpen ? '댓글 접기' : '댓글 펼치기'}
+          >
+            {commentsListOpen ? '▴' : '▾'}
+          </button>
         </CommentHeader>
 
-        <CommentList>
+        {commentsListOpen && (
+        <CommentList id="viewer-comments-list">
           {threads.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'rgba(0,0,0,0.4)', fontSize: 12, padding: '32px 0' }}>
+            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 12, padding: '32px 0' }}>
               아직 댓글이 없어요. 첫 댓글을 남겨보세요!
             </div>
           ) : (
@@ -1554,7 +1601,9 @@ export function Viewer({
             ))
           )}
         </CommentList>
+        )}
 
+        {commentsListOpen && (
         <CommentCompose
           onSubmit={async (e) => {
             e.preventDefault();
@@ -1623,6 +1672,7 @@ export function Viewer({
             </button>
           </div>
         </CommentCompose>
+        )}
       </CommentPanel>
     </Overlay>
   );
@@ -1638,16 +1688,17 @@ const InlineEditForm = styled.div`
     resize: vertical;
     min-height: 56px;
     border-radius: 8px;
-    border: 1px solid ${({ theme }) => theme.border};
-    background: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
     padding: 8px 10px;
     font-size: 13px;
     line-height: 1.5;
     font-family: inherit;
-    color: ${({ theme }) => theme.text};
+    color: rgba(255, 255, 255, 0.95);
     &:focus {
       outline: none;
-      border-color: ${({ theme }) => theme.brand};
+      border-color: rgba(255, 174, 92, 0.7);
+      background: rgba(255, 255, 255, 0.12);
     }
   }
   .actions {
@@ -1661,9 +1712,9 @@ const InlineEditForm = styled.div`
     font-size: 11px;
     font-weight: 700;
     cursor: pointer;
-    border: 1px solid ${({ theme }) => theme.border};
-    background: ${({ theme }) => theme.surface};
-    color: ${({ theme }) => theme.ink};
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.92);
   }
   .actions button.primary {
     background: ${({ theme }) => theme.brand};
@@ -1744,7 +1795,7 @@ function CommentThread({
           <span className="who">
             {c.author_nickname ?? '익명'}
             {c.is_edited && (
-              <span style={{ color: 'rgba(0,0,0,0.4)', fontWeight: 500 }}>
+              <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
                 · 수정됨
               </span>
             )}
