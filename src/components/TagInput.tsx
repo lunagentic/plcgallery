@@ -128,6 +128,13 @@ export function TagInput({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    // Korean IME guard: while a Hangul character is still composing, Enter
+    // first commits the last jamo into the input AND fires keydown. If we
+    // act on this Enter we end up adding the tag *and* re-injecting the
+    // last character on the next composition end. Bail out until the IME
+    // has fully committed.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
     if (e.key === 'Enter' || e.key === ',' || (e.key === 'Tab' && draft.trim())) {
       e.preventDefault();
       add(draft);

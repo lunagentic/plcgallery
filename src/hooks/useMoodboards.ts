@@ -87,7 +87,9 @@ export function useCreateMoodboard() {
         p_description: input.description ?? null,
         p_cover_gradient: input.coverGradient ?? null,
         p_team_dot: input.teamDot ?? null,
-        p_visibility: input.visibility ?? 'team_only',
+        // Default new boards to public so other users see posts on the home
+        // gallery feed. Authors can still flip to team_only after the fact.
+        p_visibility: input.visibility ?? 'public',
         p_category: input.category ?? 'inquiry',
         p_topic: input.topic ?? null,
       });

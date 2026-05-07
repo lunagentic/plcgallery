@@ -17,7 +17,7 @@ import { useUIStore } from '@/store/uiStore';
  *  Beyond this we render a "더보기" link that opens the comment sidebar's
  *  expanded details section so the user can read the full text without
  *  the panel covering more of the image. */
-const PANEL_DESC_TRUNCATE = 300;
+const PANEL_DESC_TRUNCATE = 150;
 
 /* ── Heroicons-style 24×24 outline SVGs (Tailwind defaults).
  *    `currentColor` lets them inherit the button's color. */
@@ -567,50 +567,63 @@ const CommentPanel = styled.aside<{ open: boolean }>`
   }
 `;
 
-/** Pinned-at-top "내용 자세히" section inside the comment sidebar.
- *  Shown when the user clicks "더보기" on a long description so the full
- *  text can sit alongside (not over) the image. Has its own scroll cap so
- *  even very long copy doesn't push the comment list off-screen. */
+/** Sidebar header for the "내용 자세히" toggle. Always present at the top
+ *  of the sidebar when the post has body content; clicking it expands or
+ *  collapses the detail panel below it. */
+const DetailsToggle = styled.button<{ expanded: boolean }>`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 18px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  text-align: left;
+  flex-shrink: 0;
+  .label {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #1a1714;
+  }
+  .chev {
+    font-size: 11px;
+    font-weight: 800;
+    color: rgba(26, 23, 20, 0.55);
+    transform: rotate(${({ expanded }) => (expanded ? '180deg' : '0deg')});
+    transition: transform 200ms ease;
+  }
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+  }
+`;
+
+/** Glass-overlay details panel (mirrors the InfoPanel "투명창" look) that
+ *  drops down inside the sidebar when expanded. Dark translucent
+ *  background + light text so it reads like the on-image overlay. */
 const SidebarDetails = styled.section`
   padding: 14px 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 247, 236, 0.85);
-  max-height: 45%;
+  background: linear-gradient(
+    to bottom,
+    rgba(12, 10, 8, 0.78) 0%,
+    rgba(12, 10, 8, 0.62) 100%
+  );
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  max-height: 50%;
   overflow-y: auto;
   flex-shrink: 0;
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .label {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: rgba(90, 50, 17, 0.72);
-  }
-  .close {
-    background: transparent;
-    border: 0;
-    padding: 4px 8px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
-    color: rgba(90, 50, 17, 0.72);
-    cursor: pointer;
-    &:hover {
-      background: rgba(90, 50, 17, 0.08);
-    }
-  }
   .desc {
     font-size: 13px;
-    line-height: 1.65;
-    color: #2a2018;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.92);
     white-space: pre-wrap;
     word-break: keep-all;
     margin: 0;
@@ -620,7 +633,7 @@ const SidebarDetails = styled.section`
     line-height: 1.55;
     background: rgba(255, 174, 92, 0.18);
     border-left: 2px solid rgba(255, 174, 92, 0.7);
-    color: #5a3211;
+    color: rgba(255, 255, 255, 0.95);
     padding: 8px 10px;
     border-radius: 0 8px 8px 0;
     word-break: keep-all;
@@ -633,9 +646,9 @@ const SidebarDetails = styled.section`
   .tag {
     font-size: 11px;
     font-weight: 700;
-    color: rgba(90, 50, 17, 0.85);
-    background: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(90, 50, 17, 0.15);
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.25);
     padding: 3px 9px;
     border-radius: 999px;
   }
@@ -1450,27 +1463,20 @@ export function Viewer({
       )}
 
       <CommentPanel open={commentsOpen} aria-hidden={!commentsOpen}>
-        <CommentHeader>
-          <h2>
-            댓글<span className="count">{totalComments}</span>
-          </h2>
-          <RoundBtn onClick={() => setCommentsOpen(false)} aria-label="댓글 닫기">
-            <CloseIcon />
-          </RoundBtn>
-        </CommentHeader>
-
+        {hasBody && (
+          <DetailsToggle
+            type="button"
+            expanded={sidebarDetailsOpen}
+            onClick={() => setSidebarDetailsOpen((v) => !v)}
+            aria-expanded={sidebarDetailsOpen}
+            aria-controls="viewer-details-panel"
+          >
+            <span className="label">내용 자세히</span>
+            <span className="chev">{sidebarDetailsOpen ? '접기 ▴' : '펼치기 ▾'}</span>
+          </DetailsToggle>
+        )}
         {sidebarDetailsOpen && hasBody && (
-          <SidebarDetails aria-label="게시물 상세 내용">
-            <div className="row">
-              <span className="label">내용 자세히</span>
-              <button
-                type="button"
-                className="close"
-                onClick={() => setSidebarDetailsOpen(false)}
-              >
-                접기 ▴
-              </button>
-            </div>
+          <SidebarDetails id="viewer-details-panel" aria-label="게시물 상세 내용">
             {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
             {post.description && <p className="desc">{post.description}</p>}
             {post.tags && post.tags.length > 0 && (
@@ -1482,6 +1488,15 @@ export function Viewer({
             )}
           </SidebarDetails>
         )}
+
+        <CommentHeader>
+          <h2>
+            댓글<span className="count">{totalComments}</span>
+          </h2>
+          <RoundBtn onClick={() => setCommentsOpen(false)} aria-label="댓글 닫기">
+            <CloseIcon />
+          </RoundBtn>
+        </CommentHeader>
 
         <CommentList>
           {threads.length === 0 ? (
