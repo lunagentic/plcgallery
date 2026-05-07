@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase, getPublicImageUrl } from '@/lib/supabase';
+import { supabase, getDisplayImageUrl } from '@/lib/supabase';
 
 export interface MoodboardCoverMap {
   covers: Record<string, string[]>; // moodboard_id -> N public image URLs (latest first)
@@ -46,15 +46,12 @@ export function useMoodboardCovers(moodboardIds: string[]) {
         counts[mbId] = (counts[mbId] ?? 0) + 1;
         const list = covers[mbId];
         const path = row.image_path as string | null;
-        // Skip PDF covers in the collage — only real images make sense in the
-        // grid. The post itself still counts toward the board's total.
-        if (
-          list &&
-          list.length < COVERS_PER_BOARD &&
-          path &&
-          !/\.pdf(?:[?#]|$)/i.test(path)
-        ) {
-          const url = getPublicImageUrl(path);
+        // For PDFs we use the auto-generated `.thumb.jpg` companion so the
+        // collage shows a real preview. Legacy PDFs without a companion
+        // 404 silently — the surrounding <Img> tag has no onError handler
+        // here, but a broken image just shows the gradient background.
+        if (list && list.length < COVERS_PER_BOARD && path) {
+          const url = getDisplayImageUrl(path);
           if (url) list.push(url);
         }
       }

@@ -85,7 +85,7 @@ export const en = {
     defaultTitle: 'Untitled',
     titlePh: 'Enter project title (e.g. Recycling Campaign Poster Vol.1)',
     imageTitle: 'Upload an image',
-    imageSub: 'Click or drag files here · PNG, JPG · Max 10MB',
+    imageSub: 'Click or drag files here · PNG, JPG · Max 100MB',
     aiHint: 'AI Hint Comment',
     descPh:
       '[Environment] A poster we made for milk carton collection activity. The AI assistant helped create matching illustrations.',

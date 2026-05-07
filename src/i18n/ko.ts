@@ -85,7 +85,7 @@ export const ko = {
     defaultTitle: '제목 없음',
     titlePh: '게시물 제목을 입력하세요 (예: 유초이음 재활용 홍보 포스터 1탄)',
     imageTitle: '이미지를 업로드하세요',
-    imageSub: '클릭하거나 파일을 여기로 드래그하세요 · PNG, JPG · 최대 10MB',
+    imageSub: '클릭하거나 파일을 여기로 드래그하세요 · PNG, JPG · 최대 100MB',
     aiHint: 'AI 힌트 코멘트',
     descPh: '[환경] 우유갑 모으기 활동 포스터를 만들었어요. 포스터에 알맞은 그림을 AI 비서가 만들어주었답니다.',
     save: '저장하고 닫기',

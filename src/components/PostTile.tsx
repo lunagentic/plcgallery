@@ -1,6 +1,6 @@
 import styled from '@emotion/styled';
-import type { MouseEvent } from 'react';
-import { getPublicImageUrl } from '@/lib/supabase';
+import { useState, type MouseEvent } from 'react';
+import { getDisplayImageUrl, getPublicImageUrl } from '@/lib/supabase';
 import type { PostWithAuthor } from '@/hooks/usePosts';
 
 const Card = styled.div<{ delay: number }>`
@@ -244,7 +244,6 @@ export function PostTile({
   onToggleLike,
   onTeamClick,
 }: Props) {
-  const url = getPublicImageUrl(post.image_path);
   const stage = post.stage_bg ?? '#F2EFE9';
   const displayAuthor = authorName ?? post.author_nickname ?? '작가 미상';
   const initial = displayAuthor.charAt(0).toUpperCase();
@@ -252,17 +251,28 @@ export function PostTile({
   const bundleSize = post.image_paths?.length ?? 0;
   const isBundle = bundleSize > 1;
   const coverIsPdf = !!post.image_path && /\.pdf(?:[?#]|$)/i.test(post.image_path);
+  // For PDFs: render the auto-generated thumbnail companion. If it 404s
+  // (legacy PDFs without thumbs) fall back to the badge card via onError.
+  const url = coverIsPdf
+    ? getDisplayImageUrl(post.image_path)
+    : getPublicImageUrl(post.image_path);
+  const [thumbBroken, setThumbBroken] = useState(false);
 
   return (
     <Card delay={index * 40}>
       <Tile onClick={onClick} aria-label={post.title}>
-        {coverIsPdf ? (
+        {coverIsPdf && thumbBroken ? (
           <PdfCover>
             <span className="badge">PDF</span>
             <span className="label">문서</span>
           </PdfCover>
         ) : url ? (
-          <Img src={url} alt={post.title} loading="lazy" />
+          <Img
+            src={url}
+            alt={post.title}
+            loading="lazy"
+            onError={coverIsPdf ? () => setThumbBroken(true) : undefined}
+          />
         ) : (
           <EmptyStage bg={stage} />
         )}

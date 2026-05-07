@@ -226,23 +226,62 @@ export function useCreatePostBundle() {
       const teamId = team.id;
       const userId = session.user.id;
       const total = input.imageFiles.length;
+      // `uploaded` holds the user-visible paths that get persisted to
+      // posts.image_paths[]. `cleanupPaths` adds companion thumbs that
+      // should be removed if the bundle fails — they are NOT user-visible.
       const uploaded: string[] = [];
+      const cleanupPaths: string[] = [];
 
       for (let i = 0; i < input.imageFiles.length; i++) {
         const file = input.imageFiles[i];
-        const ext = file.name.split('.').pop() ?? 'jpg';
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
         const imagePath = `${teamId}/${crypto.randomUUID()}.${ext}`;
+        const isPdf = ext === 'pdf' || file.type === 'application/pdf';
         const { error: upErr } = await supabase.storage
           .from(STORAGE_BUCKET)
-          .upload(imagePath, file, { cacheControl: '3600', upsert: false });
+          .upload(imagePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: file.type || (isPdf ? 'application/pdf' : undefined),
+          });
         if (upErr) {
-          // Best effort cleanup: delete already uploaded files in this bundle
-          if (uploaded.length > 0) {
-            await supabase.storage.from(STORAGE_BUCKET).remove(uploaded).catch(() => {});
+          if (cleanupPaths.length > 0) {
+            await supabase.storage.from(STORAGE_BUCKET).remove(cleanupPaths).catch(() => {});
           }
           throw upErr;
         }
         uploaded.push(imagePath);
+        cleanupPaths.push(imagePath);
+
+        // For PDFs, render the first page to a JPEG companion thumbnail at
+        // `${imagePath}.thumb.jpg`. Failure here is non-fatal: the post still
+        // saves, and the UI falls back to a generic PDF placeholder. The
+        // thumb is NOT added to image_paths — the gallery resolves it
+        // implicitly from the PDF path.
+        if (isPdf) {
+          try {
+            const { renderPdfFirstPageToJpeg, pdfThumbPath } = await import(
+              '@/lib/pdfThumbnail'
+            );
+            const thumbBlob = await renderPdfFirstPageToJpeg(file);
+            const thumbPath = pdfThumbPath(imagePath);
+            const { error: thumbErr } = await supabase.storage
+              .from(STORAGE_BUCKET)
+              .upload(thumbPath, thumbBlob, {
+                cacheControl: '3600',
+                upsert: false,
+                contentType: 'image/jpeg',
+              });
+            if (thumbErr) {
+              console.warn('[plc] PDF thumb upload failed:', thumbErr.message);
+            } else {
+              cleanupPaths.push(thumbPath);
+            }
+          } catch (e) {
+            console.warn('[plc] PDF thumb render failed:', (e as Error).message);
+          }
+        }
+
         input.onProgress?.(i + 1, total);
       }
 
@@ -267,7 +306,7 @@ export function useCreatePostBundle() {
         .select('*')
         .single();
       if (error) {
-        await supabase.storage.from(STORAGE_BUCKET).remove(uploaded).catch(() => {});
+        await supabase.storage.from(STORAGE_BUCKET).remove(cleanupPaths).catch(() => {});
         throw error;
       }
       return data as Post;
@@ -404,9 +443,18 @@ export function useDeletePost() {
       if (error) throw error;
       const paths = (data ?? []) as string[];
       if (paths.length > 0) {
+        // Also remove the companion `.thumb.jpg` for any PDF in the bundle —
+        // the server-side delete_post RPC only knows about image_paths, not
+        // the implicit thumbnail siblings we upload from the client.
+        const fullList = [
+          ...paths,
+          ...paths
+            .filter((p) => /\.pdf(?:[?#]|$)/i.test(p))
+            .map((p) => `${p}.thumb.jpg`),
+        ];
         const { error: storageErr } = await supabase.storage
           .from(STORAGE_BUCKET)
-          .remove(paths);
+          .remove(fullList);
         if (storageErr) {
           // Best-effort cleanup — the post row is already gone, so we just
           // log instead of throwing back at the user.

@@ -13,6 +13,12 @@ import { getPublicImageUrl } from '@/lib/supabase';
 import { copyToClipboard } from '@/lib/clipboard';
 import { useUIStore } from '@/store/uiStore';
 
+/** Hard cut-off for the InfoPanel description before we collapse it.
+ *  Beyond this we render a "더보기" link that opens the comment sidebar's
+ *  expanded details section so the user can read the full text without
+ *  the panel covering more of the image. */
+const PANEL_DESC_TRUNCATE = 300;
+
 /* ── Heroicons-style 24×24 outline SVGs (Tailwind defaults).
  *    `currentColor` lets them inherit the button's color. */
 const Icon = ({
@@ -344,6 +350,26 @@ const Body = styled.p`
   color: rgba(255, 255, 255, 0.85);
   white-space: pre-wrap;
   word-break: keep-all;
+  margin: 0;
+`;
+
+/** Inline "더보기" link rendered after the truncated description in the
+ *  InfoPanel. Picking up the panel's white-on-dark color so it reads as
+ *  part of the body text but underlined to look clearly clickable. */
+const InlineMoreBtn = styled.button`
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #ffd9a8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  &:hover {
+    color: #ffe6c2;
+  }
 `;
 
 const TipBox = styled.div`
@@ -512,12 +538,18 @@ const CommentBtn = styled.button<{ active: boolean }>`
 
 const CommentPanel = styled.aside<{ open: boolean }>`
   position: absolute;
-  top: 0;
+  /* Anchor below the TopBar so the title / author / index stay visible
+   *  while the panel is open. The TopBar's height is ~76px for a single-
+   *  line title; we round up a little so two-line titles don't peek
+   *  underneath. The panel still extends to the bottom of the viewport. */
+  top: 88px;
   right: 0;
   bottom: 0;
   width: 380px;
   max-width: 100vw;
-  z-index: 16;
+  /* TopBar is z-index 14 — keep the panel below it so it can never cover
+   *  the header even on narrow screens. */
+  z-index: 13;
   display: flex;
   flex-direction: column;
   background: rgba(255, 255, 255, 0.96);
@@ -527,8 +559,85 @@ const CommentPanel = styled.aside<{ open: boolean }>`
   box-shadow: -10px 0 28px -16px rgba(0, 0, 0, 0.2);
   transform: translateX(${({ open }) => (open ? '0' : '105%')});
   transition: transform 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
+  @media (max-width: 900px) {
+    top: 96px;
+  }
   @media (max-width: 700px) {
     width: 100vw;
+  }
+`;
+
+/** Pinned-at-top "내용 자세히" section inside the comment sidebar.
+ *  Shown when the user clicks "더보기" on a long description so the full
+ *  text can sit alongside (not over) the image. Has its own scroll cap so
+ *  even very long copy doesn't push the comment list off-screen. */
+const SidebarDetails = styled.section`
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 247, 236, 0.85);
+  max-height: 45%;
+  overflow-y: auto;
+  flex-shrink: 0;
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(90, 50, 17, 0.72);
+  }
+  .close {
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(90, 50, 17, 0.72);
+    cursor: pointer;
+    &:hover {
+      background: rgba(90, 50, 17, 0.08);
+    }
+  }
+  .desc {
+    font-size: 13px;
+    line-height: 1.65;
+    color: #2a2018;
+    white-space: pre-wrap;
+    word-break: keep-all;
+    margin: 0;
+  }
+  .tip {
+    font-size: 12px;
+    line-height: 1.55;
+    background: rgba(255, 174, 92, 0.18);
+    border-left: 2px solid rgba(255, 174, 92, 0.7);
+    color: #5a3211;
+    padding: 8px 10px;
+    border-radius: 0 8px 8px 0;
+    word-break: keep-all;
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tag {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(90, 50, 17, 0.85);
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(90, 50, 17, 0.15);
+    padding: 3px 9px;
+    border-radius: 999px;
   }
 `;
 
@@ -894,6 +1003,10 @@ export function Viewer({
   const [editTags, setEditTags] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  // True when the user clicks "더보기" on a long description — pins the
+  // expanded "내용 자세히" section at the top of the comment sidebar so
+  // they can read the full text alongside (not over) the image.
+  const [sidebarDetailsOpen, setSidebarDetailsOpen] = useState(false);
   const [composeText, setComposeText] = useState('');
   const [replyTo, setReplyTo] = useState<{ id: string; nickname: string | null } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -937,6 +1050,7 @@ export function Viewer({
     setEditingCommentId(null);
     setEditingDraft('');
     setComposeText('');
+    setSidebarDetailsOpen(false);
   }, [index]);
 
   const copyPanelContent = async () => {
@@ -1140,7 +1254,25 @@ export function Viewer({
                 </PanelTagRow>
               )}
               {post.tip_text && <TipBox>{post.tip_text}</TipBox>}
-              {post.description && <Body>{post.description}</Body>}
+              {post.description && (
+                post.description.length > PANEL_DESC_TRUNCATE ? (
+                  <Body>
+                    {post.description.slice(0, PANEL_DESC_TRUNCATE).trimEnd()}
+                    …
+                    <InlineMoreBtn
+                      type="button"
+                      onClick={() => {
+                        setSidebarDetailsOpen(true);
+                        setCommentsOpen(true);
+                      }}
+                    >
+                      더보기
+                    </InlineMoreBtn>
+                  </Body>
+                ) : (
+                  <Body>{post.description}</Body>
+                )
+              )}
             </InfoPanel>
           )}
         </ImageHost>
@@ -1157,7 +1289,13 @@ export function Viewer({
                   type="button"
                   aria-label={isPdf ? `PDF ${i + 1}` : `이미지 ${i + 1}`}
                 >
-                  {isPdf ? <ThumbPdf>PDF</ThumbPdf> : <img src={url} alt="" />}
+                  {isPdf ? (
+                    // Try the rendered thumbnail; fall back to the PDF badge
+                    // when the thumb 404s (legacy posts without a companion).
+                    <PdfThumbImage url={url} />
+                  ) : (
+                    <img src={url} alt="" />
+                  )}
                 </Thumb>
               );
             })}
@@ -1320,6 +1458,30 @@ export function Viewer({
             <CloseIcon />
           </RoundBtn>
         </CommentHeader>
+
+        {sidebarDetailsOpen && hasBody && (
+          <SidebarDetails aria-label="게시물 상세 내용">
+            <div className="row">
+              <span className="label">내용 자세히</span>
+              <button
+                type="button"
+                className="close"
+                onClick={() => setSidebarDetailsOpen(false)}
+              >
+                접기 ▴
+              </button>
+            </div>
+            {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
+            {post.description && <p className="desc">{post.description}</p>}
+            {post.tags && post.tags.length > 0 && (
+              <div className="tags">
+                {post.tags.map((tag) => (
+                  <span key={tag} className="tag">#{tag}</span>
+                ))}
+              </div>
+            )}
+          </SidebarDetails>
+        )}
 
         <CommentList>
           {threads.length === 0 ? (
@@ -1529,6 +1691,17 @@ interface CommentThreadProps {
   onSaveEdit: (c: CommentRow) => void;
   onDelete: (c: CommentRow, asAdmin: boolean) => void;
   onReply: (c: CommentRow) => void;
+}
+
+/** Tries to render the auto-generated `.thumb.jpg` companion of a PDF.
+ *  Falls back to the PDF badge for legacy posts that never had a thumb. */
+function PdfThumbImage({ url }: { url: string }) {
+  const [broken, setBroken] = useState(false);
+  // url here is the resolved PDF public URL — append `.thumb.jpg` to its
+  // path component, preserving any signed-token query.
+  const thumbUrl = url.replace(/\.pdf(?=[?#]|$)/i, '.pdf.thumb.jpg');
+  if (broken || thumbUrl === url) return <ThumbPdf>PDF</ThumbPdf>;
+  return <img src={thumbUrl} alt="" onError={() => setBroken(true)} />;
 }
 
 function CommentThread({

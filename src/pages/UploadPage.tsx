@@ -16,7 +16,8 @@ import { useUIStore } from '@/store/uiStore';
 import { useAuthStore } from '@/store/authStore';
 import { MOODBOARD_CATEGORIES, type MoodboardCategory } from '@/types/database';
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_FILE_LABEL = '100MB';
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const ACCEPTED_INPUT_ATTR =
   'image/png,image/jpeg,image/webp,application/pdf,.pdf';
@@ -308,7 +309,50 @@ const ProgressFill = styled.div<{ pct: number }>`
   transition: width 0.3s ease;
 `;
 
-const TAG_SUGGESTIONS = ['수업', '환경', '놀이', '탐구', '부모', '스토리북', 'AI', '아이디어'];
+const TAG_SUGGESTIONS = [
+  // Activity / theme tags (kept for back-compat; ordered by likely use)
+  '수업', '환경', '놀이', '탐구', '부모', '스토리북', '아이디어',
+  // Age tags — early-childhood programmes typically split by yearly cohort.
+  '0세', '1세', '2세', '3세', '4세', '5세',
+  // AI tooling tags — most posts here reference Kinderboard's AI features.
+  'AI비서', 'AI 스튜디오',
+];
+
+/** localStorage key for the recently-used tag list. Per-user so multiple
+ *  teachers on the same browser don't bleed into each other. */
+const RECENT_TAGS_KEY = 'plc-recent-tags';
+const RECENT_TAGS_MAX = 8;
+const RECENT_TAG_PREFILL_MAX = 3;
+
+function readRecentTags(userId: string | undefined): string[] {
+  if (typeof window === 'undefined' || !userId) return [];
+  try {
+    const raw = localStorage.getItem(`${RECENT_TAGS_KEY}-${userId}`);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr)
+      ? arr.filter((v) => typeof v === 'string').slice(0, RECENT_TAGS_MAX)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushRecentTags(userId: string | undefined, tags: string[]): string[] {
+  if (typeof window === 'undefined' || !userId || tags.length === 0) return tags;
+  const prev = readRecentTags(userId);
+  // De-dupe while preserving "most recently used" first.
+  const merged = [...tags, ...prev.filter((t) => !tags.includes(t))].slice(
+    0,
+    RECENT_TAGS_MAX,
+  );
+  try {
+    localStorage.setItem(`${RECENT_TAGS_KEY}-${userId}`, JSON.stringify(merged));
+  } catch {
+    /* ignore */
+  }
+  return merged;
+}
 
 const TITLE_SUGGESTIONS = [
   '컬러링 만들기',
@@ -380,7 +424,15 @@ export default function UploadPage() {
   const [moodboardId, setMoodboardId] = useState(paramMbId ?? '');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
+  // Pre-fill the tag list with the user's last few used tags so common
+  // tags (like 4세 / AI비서) don't have to be retyped every upload. The
+  // user can still remove any of them with one click.
+  const [tags, setTags] = useState<string[]>(() =>
+    readRecentTags(userId).slice(0, RECENT_TAG_PREFILL_MAX),
+  );
+  const [recentTags, setRecentTags] = useState<string[]>(() =>
+    readRecentTags(userId),
+  );
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -403,9 +455,30 @@ export default function UploadPage() {
 
   const titlePlaceholder = `예: ${TITLE_SUGGESTIONS[placeholderIdx]}`;
 
-  // When auth resolves later, refresh the per-user recent list.
+  // Tag suggestion list with the user's recently-used tags floated to the
+  // top, then the canonical defaults. De-duped while preserving order.
+  const tagSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of [...recentTags, ...TAG_SUGGESTIONS]) {
+      const norm = t.trim();
+      if (!norm || seen.has(norm)) continue;
+      seen.add(norm);
+      out.push(norm);
+    }
+    return out;
+  }, [recentTags]);
+
+  // When auth resolves later, refresh the per-user recent lists.
   useEffect(() => {
     setRecentTitles(readRecentTitles(userId));
+    const next = readRecentTags(userId);
+    setRecentTags(next);
+    // Re-prefill tags only if the user hasn't typed any yet — never
+    // overwrite an in-progress edit just because auth hydrated late.
+    setTags((prev) =>
+      prev.length === 0 ? next.slice(0, RECENT_TAG_PREFILL_MAX) : prev,
+    );
   }, [userId]);
 
   // Pre-select only when navigated with /upload/:moodboardId. Otherwise prefer
@@ -575,7 +648,7 @@ export default function UploadPage() {
       return;
     }
     if (hasOverSized) {
-      showToast('10MB를 초과하는 파일이 있어요', 'error');
+      showToast(`${MAX_FILE_LABEL}를 초과하는 파일이 있어요`, 'error');
       return;
     }
     if (!moodboardId) {
@@ -594,6 +667,10 @@ export default function UploadPage() {
         onProgress: (completed, total) => setProgress({ completed, total }),
       });
       setRecentTitles(pushRecentTitle(userId, title.trim()));
+      // Remember this upload's tags so the next upload pre-fills them.
+      if (tags.length > 0) {
+        setRecentTags(pushRecentTags(userId, tags));
+      }
       showToast(
         files.length > 1
           ? `${files.length}장이 한 게시물로 묶였어요`
@@ -661,7 +738,7 @@ export default function UploadPage() {
                 <div className="s">
                   클릭 · 드래그 · 붙여넣기(⌘/Ctrl+V) 모두 OK
                   <br />
-                  PNG, JPG, WEBP, PDF · 파일당 최대 10MB
+                  PNG, JPG, WEBP, PDF · 파일당 최대 {MAX_FILE_LABEL}
                 </div>
               </>
             ) : (
@@ -824,7 +901,7 @@ export default function UploadPage() {
           </Field>
           <Field>
             <Label>태그</Label>
-            <TagInput value={tags} onChange={setTags} suggestions={TAG_SUGGESTIONS} />
+            <TagInput value={tags} onChange={setTags} suggestions={tagSuggestions} />
           </Field>
         </div>
       </Grid>
