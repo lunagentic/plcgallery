@@ -454,30 +454,31 @@ const InlineMoreBtn = styled.button`
  * sidebar with the full content + comments.
  */
 const CaptionStrip = styled.button`
-  /* Sits inside MediaCard which already owns radius / clip / shadow.
-   *  The image dictates the card's natural width and gets centered in
-   *  the stage; the caption uses a comfortable reading width capped at
-   *  720px so a long Korean run wraps roughly at the example sentence
-   *  baseline. When the image is narrower than 720px the caption
-   *  shrinks to the image width instead. align-self: center keeps the
-   *  capped strip centered under wider images. */
-  align-self: center;
+  /* Spans the full width of MediaCard so the bottom strip flows edge-
+   *  to-edge with the image card above. Min-width: 0 lets long Korean
+   *  text use the card's full width when wrapping instead of dictating
+   *  an outer min-content. */
+  align-self: stretch;
   width: 100%;
-  max-width: 720px;
   min-width: 0;
   box-sizing: border-box;
-  padding: 12px 18px;
+  padding: 14px 22px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   text-align: left;
   border: 0;
-  /* Dark glass, matches the comment sidebar concept so the panel-open
-   *  transition looks like one consistent surface family. */
+  /* Dark glass that fades in from the image. The top edge starts fully
+   *  transparent so the photo's bottom pixels bleed into the caption,
+   *  then ramps to a solid translucent dark for text readability —
+   *  matches the "투명창" concept used elsewhere. The blur stays
+   *  uniform so the underlying image is softened consistently. */
   background: linear-gradient(
     to bottom,
-    rgba(12, 10, 8, 0.62) 0%,
-    rgba(12, 10, 8, 0.52) 100%
+    rgba(12, 10, 8, 0) 0%,
+    rgba(12, 10, 8, 0.4) 22%,
+    rgba(12, 10, 8, 0.62) 55%,
+    rgba(12, 10, 8, 0.7) 100%
   );
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
