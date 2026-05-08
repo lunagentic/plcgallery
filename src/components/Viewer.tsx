@@ -231,7 +231,12 @@ const ImageColumn = styled.div`
  *  they read as one Instagram-style media card. The radius / shadow /
  *  overflow live here so the image and caption can sit flush against
  *  each other with no visible seam. ImageColumn is `inline-flex` and
- *  shrinks to image width — MediaCard inherits that natural width. */
+ *  shrinks to image width — MediaCard inherits that natural width.
+ *
+ *  The entry `cardLift` animation mimics the Behance editorial feel:
+ *  the card eases up from a slightly smaller scale + soft blur the
+ *  moment the viewer mounts, so opening a post feels like the photo
+ *  is rising into focus rather than just flashing in. */
 const MediaCard = styled.div`
   display: inline-flex;
   flex-direction: column;
@@ -240,6 +245,19 @@ const MediaCard = styled.div`
   overflow: hidden;
   box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.25);
   background: rgba(255, 255, 255, 0.2);
+  animation: cardLift 460ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+  @keyframes cardLift {
+    from {
+      transform: scale(0.94) translateY(12px);
+      opacity: 0;
+      filter: blur(6px);
+    }
+    to {
+      transform: scale(1) translateY(0);
+      opacity: 1;
+      filter: blur(0);
+    }
+  }
 `;
 
 const Img = styled.img`
@@ -248,6 +266,133 @@ const Img = styled.img`
   max-height: calc(100vh - 320px);
   object-fit: contain;
   display: block;
+`;
+
+/** Behance-style image-zoom trigger. Wraps the image so the whole
+ *  photo block is one click target with a zoom-in cursor. The press
+ *  reaction is a tiny scale dip + brightness lift — enough feedback to
+ *  feel responsive without being noisy. */
+const ImagePressable = styled.button`
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  display: block;
+  width: 100%;
+  cursor: zoom-in;
+  overflow: hidden;
+  & img {
+    transition: transform 360ms cubic-bezier(0.2, 0.85, 0.25, 1),
+      filter 280ms ease;
+    will-change: transform;
+  }
+  &:hover img {
+    transform: scale(1.015);
+    filter: brightness(1.03);
+  }
+  &:active img {
+    transform: scale(0.99);
+  }
+`;
+
+/** Full-screen lightbox overlay rendered on top of the viewer when the
+ *  user clicks the photo. Animates a soft fade + scale-in (Behance vibe),
+ *  shows the image at near-full viewport size against a near-black
+ *  backdrop, and dismisses on click / Esc. */
+const ZoomOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  cursor: zoom-out;
+  background: rgba(8, 6, 4, 0.92);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: zoomBgIn 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 24px;
+  @keyframes zoomBgIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+`;
+
+const ZoomedImg = styled.img`
+  max-width: 96vw;
+  max-height: 96vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 60px 120px -20px rgba(0, 0, 0, 0.6);
+  animation: zoomLift 360ms cubic-bezier(0.2, 0.85, 0.25, 1);
+  @keyframes zoomLift {
+    from {
+      transform: scale(0.94);
+      opacity: 0.4;
+    }
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+`;
+
+/** Edge nav arrows inside the lightbox so users can click through
+ *  posts without leaving the zoomed view. Same shape as the regular
+ *  NavBtn but tuned for the dark backdrop. */
+const ZoomNavBtn = styled.button<{ dir: 'left' | 'right' }>`
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  ${({ dir }) => (dir === 'left' ? 'left: 24px;' : 'right: 24px;')}
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 18px;
+  display: grid;
+  place-items: center;
+  z-index: 102;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+  &:hover {
+    background: rgba(255, 255, 255, 0.24);
+    transform: translateY(-50%) scale(1.05);
+  }
+  @media (max-width: 700px) {
+    width: 40px;
+    height: 40px;
+    ${({ dir }) => (dir === 'left' ? 'left: 12px;' : 'right: 12px;')}
+  }
+`;
+
+/** Hint pill in the zoom overlay's corner — gives a soft "esc to close"
+ *  affordance. Fades in late so the image lift reads first. */
+const ZoomHint = styled.div`
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 101;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  animation: hintFade 480ms ease 200ms both;
+  @keyframes hintFade {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 `;
 
 /** PDFs render via the browser's native viewer in an iframe. Keep size
@@ -1064,6 +1209,10 @@ export function Viewer({
   // Default true (full view). When false, descriptions over 150 chars
   // truncate with an inline 더보기 button; tip + tags stay visible.
   const [detailsExpanded, setDetailsExpanded] = useState(true);
+  // Behance-style image zoom: clicking the photo expands it to a
+  // full-screen lightbox with a darker backdrop. Click anywhere or hit
+  // Esc to exit. Doesn't apply to PDFs (they have their own viewer).
+  const [imageZoomed, setImageZoomed] = useState(false);
   const [composeText, setComposeText] = useState('');
   const [replyTo, setReplyTo] = useState<{ id: string; nickname: string | null } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -1090,6 +1239,8 @@ export function Viewer({
     setEditingDraft('');
     setComposeText('');
     setDetailsExpanded(true);
+    // Intentionally NOT clearing `imageZoomed` here so the user can
+    // arrow / click through posts while staying in the lightbox view.
   }, [index]);
 
   const copyPanelContent = async () => {
@@ -1108,6 +1259,13 @@ export function Viewer({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // Esc: collapse the zoom lightbox first if it's open, otherwise
+        // close the whole viewer. Lets users back out of zoom without
+        // losing their place in the post stack.
+        if (imageZoomed) {
+          setImageZoomed(false);
+          return;
+        }
         onClose();
         return;
       }
@@ -1136,7 +1294,7 @@ export function Viewer({
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [index, posts, onClose, onIndexChange]);
+  }, [index, posts, onClose, onIndexChange, imageZoomed]);
 
   if (!post) return null;
 
@@ -1265,7 +1423,14 @@ export function Viewer({
               // do NOT pass `sandbox` so the toolbar (zoom, page nav) works.
             />
           ) : (
-            <Img src={currentImageUrl} alt={post.title} />
+            <ImagePressable
+              type="button"
+              onClick={() => setImageZoomed(true)}
+              aria-label="이미지 크게 보기"
+              title="크게 보기"
+            >
+              <Img src={currentImageUrl} alt={post.title} />
+            </ImagePressable>
           )}
 
           {/* Caption strip sits flush against the image's bottom edge —
@@ -1677,6 +1842,50 @@ export function Viewer({
           </div>
         </CommentCompose>
       </CommentPanel>
+
+      {imageZoomed && !currentIsPdf && currentImageUrl && (
+        <>
+          <ZoomOverlay
+            onClick={() => setImageZoomed(false)}
+            role="dialog"
+            aria-modal
+            aria-label="이미지 확대 보기"
+          >
+            {/* Click anywhere — image or backdrop — to dismiss; mirrors
+             *  the way Behance's lightbox treats the image as a single
+             *  toggle target. Nav arrows below stop propagation so they
+             *  page through posts without dismissing the lightbox. */}
+            <ZoomedImg key={currentImageUrl} src={currentImageUrl} alt={post.title} />
+          </ZoomOverlay>
+          {index > 0 && (
+            <ZoomNavBtn
+              type="button"
+              dir="left"
+              aria-label="이전 게시물"
+              onClick={(e) => {
+                e.stopPropagation();
+                onIndexChange(index - 1);
+              }}
+            >
+              ←
+            </ZoomNavBtn>
+          )}
+          {index < posts.length - 1 && (
+            <ZoomNavBtn
+              type="button"
+              dir="right"
+              aria-label="다음 게시물"
+              onClick={(e) => {
+                e.stopPropagation();
+                onIndexChange(index + 1);
+              }}
+            >
+              →
+            </ZoomNavBtn>
+          )}
+          <ZoomHint>클릭 또는 ESC로 닫기 · ← → 이동</ZoomHint>
+        </>
+      )}
     </Overlay>
   );
 }
