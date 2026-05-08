@@ -345,11 +345,19 @@ const ZoomedImg = styled.img`
    *  instead of re-running the keyframes — that re-run was causing a
    *  visible opacity flicker on every navigation. */
   animation: zoomLift 360ms cubic-bezier(0.2, 0.85, 0.25, 1);
-  /* Smooth the src swap: when the browser starts decoding a new image,
-   *  fade the current frame slightly and ease back. Browsers don't
-   *  natively transition between img sources, but the transition on
-   *  opacity covers the brief decode window for cached / fast loads. */
-  transition: opacity 180ms ease;
+  /* Same hover reaction as the in-card ImagePressable: a tiny lift on
+   *  scale + brightness so the lightbox feels alive when the cursor
+   *  passes over it. transition covers the smooth fall-back when the
+   *  cursor leaves and the src-swap fade window. */
+  transition:
+    transform 280ms cubic-bezier(0.2, 0.85, 0.25, 1),
+    filter 280ms ease,
+    opacity 180ms ease;
+  will-change: transform;
+  &:hover {
+    transform: scale(1.015);
+    filter: brightness(1.05);
+  }
   @keyframes zoomLift {
     from {
       transform: scale(0.96);
