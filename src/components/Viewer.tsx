@@ -227,13 +227,19 @@ const ImageColumn = styled.div`
   max-width: 100%;
 `;
 
-/** The image's positioning context — hugs the photo so the InfoPanel can
- *  be inset relative to the actual image rectangle. */
-const ImageHost = styled.div`
-  position: relative;
+/** Single visual card that owns the image + caption strip together so
+ *  they read as one Instagram-style media card. The radius / shadow /
+ *  overflow live here so the image and caption can sit flush against
+ *  each other with no visible seam. ImageColumn is `inline-flex` and
+ *  shrinks to image width — MediaCard inherits that natural width. */
+const MediaCard = styled.div`
   display: inline-flex;
+  flex-direction: column;
   max-width: 100%;
-  max-height: calc(100vh - 320px);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.2);
 `;
 
 const Img = styled.img`
@@ -241,8 +247,6 @@ const Img = styled.img`
   /* Leaves room for the always-visible CaptionStrip below the photo. */
   max-height: calc(100vh - 320px);
   object-fit: contain;
-  border-radius: 16px;
-  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.25);
   display: block;
 `;
 
@@ -252,9 +256,7 @@ const PdfFrame = styled.iframe`
   width: min(900px, 92vw);
   height: calc(100vh - 320px);
   border: 0;
-  border-radius: 16px;
   background: #fff;
-  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.25);
   display: block;
 `;
 
@@ -283,26 +285,34 @@ const InlineMoreBtn = styled.button`
  * sidebar with the full content + comments.
  */
 const CaptionStrip = styled.button`
-  /* Hug the image width (Instagram caption style). ImageColumn is
-   *  inline-flex shrink-to-fit, so width:100% resolves to whatever the
-   *  rendered image takes. The max-width clamp keeps us inside the
-   *  image envelope when the column ever stretches. */
+  /* Sits inside MediaCard which already owns radius / clip / shadow,
+   *  so the strip itself is borderless and seamlessly attached to the
+   *  image's bottom edge. */
   width: 100%;
-  max-width: min(900px, 92vw);
   padding: 12px 18px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(14px) saturate(130%);
-  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  border: 0;
+  /* Dark glass, matches the comment sidebar concept so the panel-open
+   *  transition looks like one consistent surface family. */
+  background: linear-gradient(
+    to bottom,
+    rgba(12, 10, 8, 0.62) 0%,
+    rgba(12, 10, 8, 0.52) 100%
+  );
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  color: rgba(255, 255, 255, 0.92);
   cursor: pointer;
-  transition: background 0.18s ease, transform 0.18s ease;
+  transition: background 0.18s ease, transform 0.18s ease, opacity 0.2s ease;
   &:hover {
-    background: rgba(255, 255, 255, 0.92);
+    background: linear-gradient(
+      to bottom,
+      rgba(12, 10, 8, 0.72) 0%,
+      rgba(12, 10, 8, 0.62) 100%
+    );
   }
   &:active {
     transform: scale(0.995);
@@ -315,16 +325,16 @@ const CaptionStrip = styled.button`
   .tag {
     font-size: 11px;
     font-weight: 700;
-    color: #5a3211;
+    color: rgba(255, 255, 255, 0.92);
     background: rgba(255, 174, 92, 0.18);
-    border: 1px solid rgba(255, 174, 92, 0.35);
+    border: 1px solid rgba(255, 174, 92, 0.32);
     padding: 3px 9px;
     border-radius: 999px;
   }
   .desc {
     font-size: 13px;
     line-height: 1.55;
-    color: rgba(26, 23, 20, 0.92);
+    color: rgba(255, 255, 255, 0.88);
     word-break: keep-all;
     margin: 0;
     display: -webkit-box;
@@ -335,8 +345,8 @@ const CaptionStrip = styled.button`
   .tip {
     font-size: 11px;
     line-height: 1.45;
-    color: #5a3211;
-    background: rgba(255, 174, 92, 0.14);
+    color: rgba(255, 220, 180, 0.95);
+    background: rgba(255, 174, 92, 0.18);
     border-left: 2px solid rgba(255, 174, 92, 0.65);
     padding: 6px 8px;
     border-radius: 0 6px 6px 0;
@@ -355,7 +365,13 @@ const CaptionStrip = styled.button`
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
-    color: rgba(26, 23, 20, 0.55);
+    color: rgba(255, 255, 255, 0.55);
+  }
+  @media (max-width: 700px) {
+    padding: 10px 14px;
+    gap: 6px;
+    .desc { font-size: 12px; }
+    .tag { font-size: 10px; padding: 2px 7px; }
   }
 `;
 
@@ -442,10 +458,13 @@ const NavBtn = styled.button<{ dir: 'left' | 'right'; panelOpen: boolean }>`
   @media (max-width: 900px) {
     width: 40px;
     height: 40px;
-    ${({ dir, panelOpen }) =>
-      dir === 'left'
-        ? 'left: 10px;'
-        : `right: ${panelOpen ? 'calc(100vw - 40px)' : '10px'};`}
+    ${({ dir }) => (dir === 'left' ? 'left: 10px;' : 'right: 10px;')}
+  }
+  /* On mobile the sidebar takes the whole screen — the photo isn't
+   *  visible behind it, so the navigation arrows are useless and just
+   *  collide with sidebar content. Hide them. */
+  @media (max-width: 700px) {
+    display: ${({ panelOpen }) => (panelOpen ? 'none' : 'grid')};
   }
 `;
 
@@ -458,9 +477,12 @@ const Hint = styled.div`
   color: rgba(26, 23, 20, 0.45);
   letter-spacing: 0.05em;
   z-index: 10;
+  @media (max-width: 700px) {
+    display: none;
+  }
 `;
 
-const BottomBar = styled.div`
+const BottomBar = styled.div<{ panelOpen: boolean }>`
   position: absolute;
   bottom: 18px;
   left: 50%;
@@ -475,8 +497,16 @@ const BottomBar = styled.div`
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.18);
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100vw - 32px);
   @media (max-width: 900px) {
     bottom: 12px;
+  }
+  @media (max-width: 700px) {
+    /* Sidebar covers the viewport on mobile — hide the bar so it
+     *  doesn't compete with sidebar content. */
+    display: ${({ panelOpen }) => (panelOpen ? 'none' : 'inline-flex')};
   }
 `;
 
@@ -1225,7 +1255,7 @@ export function Viewer({
 
       <Stage panelOpen={commentsOpen}>
         <ImageColumn>
-        <ImageHost>
+        <MediaCard>
           {currentIsPdf ? (
             <PdfFrame
               src={currentImageUrl}
@@ -1235,36 +1265,36 @@ export function Viewer({
               // do NOT pass `sandbox` so the toolbar (zoom, page nav) works.
             />
           ) : (
-            <Img
-              src={currentImageUrl}
-              alt={post.title}
-              style={{ background: 'rgba(255,255,255,0.2)' }}
-            />
+            <Img src={currentImageUrl} alt={post.title} />
           )}
-        </ImageHost>
 
-        {hasBody && (
-          <CaptionStrip
-            type="button"
-            onClick={() => {
-              setDetailsExpanded(true);
-              setCommentsOpen(true);
-            }}
-            aria-label="내용 자세히 보기"
-            title="내용 자세히 보기"
-          >
-            {post.tags && post.tags.length > 0 && (
-              <div className="tags">
-                {post.tags.slice(0, 6).map((tag) => (
-                  <span key={tag} className="tag">#{tag}</span>
-                ))}
-              </div>
-            )}
-            {post.description && <p className="desc">{post.description}</p>}
-            {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
-            <div className="footer">자세히 →</div>
-          </CaptionStrip>
-        )}
+          {/* Caption strip sits flush against the image's bottom edge —
+           *  same MediaCard, so they read as one continuous Instagram-
+           *  style media card. Hidden while the sidebar is open since
+           *  SidebarDetails carries the same payload. */}
+          {hasBody && !commentsOpen && (
+            <CaptionStrip
+              type="button"
+              onClick={() => {
+                setDetailsExpanded(true);
+                setCommentsOpen(true);
+              }}
+              aria-label="내용 자세히 보기"
+              title="내용 자세히 보기"
+            >
+              {post.tags && post.tags.length > 0 && (
+                <div className="tags">
+                  {post.tags.slice(0, 6).map((tag) => (
+                    <span key={tag} className="tag">#{tag}</span>
+                  ))}
+                </div>
+              )}
+              {post.description && <p className="desc">{post.description}</p>}
+              {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
+              <div className="footer">자세히 →</div>
+            </CaptionStrip>
+          )}
+        </MediaCard>
 
         {imageBundle.length > 1 && (
           <ThumbStrip>
@@ -1299,7 +1329,7 @@ export function Viewer({
 
       <Hint>{t('viewer.hint')}</Hint>
 
-      <BottomBar>
+      <BottomBar panelOpen={commentsOpen}>
         <LikeBtn
           liked={isLiked}
           onClick={() => onToggleLike(post.id)}
