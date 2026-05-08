@@ -238,8 +238,14 @@ const ImageColumn = styled.div`
  *  moment the viewer mounts, so opening a post feels like the photo
  *  is rising into focus rather than just flashing in. */
 const MediaCard = styled.div`
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
+  /* Pin a consistent card width so the viewer doesn't jump in size as
+   *  the user pages through posts with different aspect ratios. The
+   *  photo inside is centered and keeps its natural aspect via
+   *  object-fit: contain — extra room reads as a soft letterbox
+   *  rather than a layout shift. */
+  width: min(900px, 92vw);
   max-width: 100%;
   border-radius: 16px;
   overflow: hidden;
@@ -277,7 +283,13 @@ const ImagePressable = styled.button`
   padding: 0;
   margin: 0;
   background: transparent;
-  display: block;
+  /* Flex-center the photo inside its host box. When the caption's
+   *  720px reading cap pushes MediaCard wider than the image's
+   *  natural width, the image would otherwise stick to the left edge
+   *  — centering keeps the photo visually balanced under the caption. */
+  display: flex;
+  justify-content: center;
+  align-items: center;
   width: 100%;
   cursor: zoom-in;
   overflow: hidden;
