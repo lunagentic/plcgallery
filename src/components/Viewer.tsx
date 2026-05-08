@@ -529,6 +529,10 @@ const CaptionStrip = styled.button`
      *  image — caption width then always matches the photo. */
     overflow-wrap: anywhere;
     word-break: break-word;
+    /* Preserve the author's spacing and line breaks. Without this the
+     *  browser collapses repeated spaces and folds \n into a single
+     *  space, so paragraph breaks vanish from the preview. */
+    white-space: pre-wrap;
     margin: 0;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -546,6 +550,7 @@ const CaptionStrip = styled.button`
     border-radius: 0 6px 6px 0;
     overflow-wrap: anywhere;
     word-break: break-word;
+    white-space: pre-wrap;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;

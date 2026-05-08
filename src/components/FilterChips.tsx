@@ -1,9 +1,10 @@
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 
-export type FilterKey = 'all' | 'activities' | 'environment' | 'play' | 'inquiry' | 'parents' | 'annual';
+export type FilterKey = 'all' | 'environment' | 'activities' | 'play' | 'inquiry' | 'parents' | 'annual';
 
-const FILTERS: FilterKey[] = ['all', 'activities', 'environment', 'play', 'inquiry', 'parents', 'annual'];
+// 전체 다음에 환경 구성이 먼저 노출되도록 우선순위 조정.
+const FILTERS: FilterKey[] = ['all', 'environment', 'activities', 'play', 'inquiry', 'parents', 'annual'];
 
 const Row = styled.div`
   display: flex;

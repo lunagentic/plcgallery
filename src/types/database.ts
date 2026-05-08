@@ -58,9 +58,12 @@ export type MoodboardCategory =
   | 'parents'
   | 'annual';
 
+/** Display order across the gallery — drives HomePage section order,
+ *  upload-page chip order, and the create-moodboard modal. 환경 구성
+ *  ranks first per product priority (most-visited category in studio). */
 export const MOODBOARD_CATEGORIES: MoodboardCategory[] = [
-  'activities',
   'environment',
+  'activities',
   'play',
   'inquiry',
   'parents',
