@@ -203,17 +203,19 @@ const Stage = styled.div<{ panelOpen: boolean }>`
   flex: 1;
   display: grid;
   place-items: center;
-  padding: 96px 80px;
-  /* When the comment sidebar slides in, reserve its width on the right
-   *  so the image visibly shrinks and the right NavBtn sits cleanly on
-   *  the new edge instead of being hidden behind the panel. */
-  padding-right: ${({ panelOpen }) => (panelOpen ? '460px' : '80px')};
+  /* Bottom padding 140px reserves the floating UI lane:
+   *   18px (BottomBar offset) + 50px (BottomBar height) + 12px gap
+   *   + 50px (ThumbStrip height) + 10px breathing room ≈ 140px.
+   *  The MediaCard's caption can never duck under the BottomBar pill
+   *  or behind the ThumbStrip because it stops above this lane. */
+  padding: 88px 60px 140px;
+  padding-right: ${({ panelOpen }) => (panelOpen ? '440px' : '60px')};
   position: relative;
   overflow: hidden;
   transition: padding-right 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
   @media (max-width: 900px) {
-    padding: 88px 16px 72px;
-    padding-right: ${({ panelOpen }) => (panelOpen ? '100vw' : '16px')};
+    padding: 80px 12px 120px;
+    padding-right: ${({ panelOpen }) => (panelOpen ? '100vw' : '12px')};
   }
 `;
 
@@ -244,8 +246,9 @@ const MediaCard = styled.div`
    *  the user pages through posts with different aspect ratios. The
    *  photo inside is centered and keeps its natural aspect via
    *  object-fit: contain — extra room reads as a soft letterbox
-   *  rather than a layout shift. */
-  width: min(900px, 92vw);
+   *  rather than a layout shift. Bumped from 900 → 1100 to give the
+   *  artwork more breathing room (Behance-feed feel). */
+  width: min(1100px, 94vw);
   max-width: 100%;
   border-radius: 16px;
   overflow: hidden;
@@ -268,8 +271,10 @@ const MediaCard = styled.div`
 
 const Img = styled.img`
   max-width: 100%;
-  /* Leaves room for the always-visible CaptionStrip below the photo. */
-  max-height: calc(100vh - 320px);
+  /* Reserve space for: TopBar (88) + Stage padding-bottom (140) +
+   *  caption (~80) so MediaCard's caption ends safely above the
+   *  floating BottomBar / ThumbStrip lane. */
+  max-height: calc(100vh - 308px);
   object-fit: contain;
   display: block;
 `;
@@ -430,8 +435,8 @@ const ZoomHint = styled.div<{ visible: boolean }>`
 /** PDFs render via the browser's native viewer in an iframe. Keep size
  *  in lockstep with <Img> so the layout stays consistent. */
 const PdfFrame = styled.iframe`
-  width: min(900px, 92vw);
-  height: calc(100vh - 320px);
+  width: min(1100px, 94vw);
+  height: calc(100vh - 308px);
   border: 0;
   background: #fff;
   display: block;
@@ -476,27 +481,25 @@ const CaptionStrip = styled.button`
   gap: 8px;
   text-align: left;
   border: 0;
-  /* Dark glass that fades in from the image. The top edge starts fully
-   *  transparent so the photo's bottom pixels bleed into the caption,
-   *  then ramps to a solid translucent dark for text readability —
-   *  matches the "투명창" concept used elsewhere. The blur stays
-   *  uniform so the underlying image is softened consistently. */
+  /* Translucent dark glass with a gentle top→bottom alpha lift. Both
+   *  stops keep at least some opacity so the photo's bottom pixels
+   *  don't bleed through (which used to swing the caption colour from
+   *  post to post), while the lighter top reads as a natural glass
+   *  fade rather than a flat slab. */
   background: linear-gradient(
     to bottom,
-    rgba(12, 10, 8, 0) 0%,
-    rgba(12, 10, 8, 0.4) 22%,
-    rgba(12, 10, 8, 0.62) 55%,
-    rgba(12, 10, 8, 0.7) 100%
+    rgba(12, 10, 8, 0.34) 0%,
+    rgba(12, 10, 8, 0.52) 100%
   );
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
   color: rgba(255, 255, 255, 0.92);
   cursor: pointer;
   transition: background 0.18s ease, transform 0.18s ease, opacity 0.2s ease;
   &:hover {
     background: linear-gradient(
       to bottom,
-      rgba(12, 10, 8, 0.72) 0%,
+      rgba(12, 10, 8, 0.46) 0%,
       rgba(12, 10, 8, 0.62) 100%
     );
   }
@@ -624,39 +627,52 @@ const DeleteBtn = styled.button`
   }
 `;
 
-const NavBtn = styled.button<{ dir: 'left' | 'right'; panelOpen: boolean }>`
+/** Behance-style nav arrow pinned to the bottom-left / bottom-right
+ *  corner of the viewer. Sits at the viewport edge (anchored on the
+ *  fixed Overlay) so the photo never has to share centre space with
+ *  navigation chrome — clear "go to the previous / next project"
+ *  affordance. Right arrow shifts with the comment sidebar. */
+const CornerNavBtn = styled.button<{ dir: 'left' | 'right'; panelOpen: boolean }>`
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  /* Right arrow shifts past the comment sidebar when it slides in so it
-   *  doesn't get hidden under the panel. Left arrow stays put. */
+  bottom: 24px;
   ${({ dir, panelOpen }) =>
     dir === 'left'
       ? 'left: 24px;'
       : `right: ${panelOpen ? '404px' : '24px'};`}
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.85);
+  border: 0;
+  background: rgba(255, 255, 255, 0.92);
   color: #1a1714;
   font-size: 18px;
+  font-weight: 700;
   display: grid;
   place-items: center;
-  z-index: 12;
-  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.2);
-  transition: right 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
-  &:hover {
+  z-index: 13;
+  cursor: pointer;
+  box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.25);
+  transition:
+    right 280ms cubic-bezier(0.2, 0.85, 0.25, 1),
+    background 0.15s ease,
+    transform 0.15s ease;
+  &:hover:not(:disabled) {
     background: #fff;
+    transform: scale(1.05);
+  }
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
   @media (max-width: 900px) {
     width: 40px;
     height: 40px;
-    ${({ dir }) => (dir === 'left' ? 'left: 10px;' : 'right: 10px;')}
+    bottom: 18px;
+    ${({ dir }) => (dir === 'left' ? 'left: 12px;' : 'right: 12px;')}
   }
-  /* On mobile the sidebar takes the whole screen — the photo isn't
-   *  visible behind it, so the navigation arrows are useless and just
-   *  collide with sidebar content. Hide them. */
   @media (max-width: 700px) {
+    /* Sidebar covers the viewport on mobile when open — hide the
+     *  edge arrows to avoid colliding with sidebar content. */
     display: ${({ panelOpen }) => (panelOpen ? 'none' : 'grid')};
   }
 `;
@@ -703,13 +719,32 @@ const BottomBar = styled.div<{ panelOpen: boolean }>`
   }
 `;
 
+/** Multi-image bundle thumb pill — floats above the BottomBar at the
+ *  bottom-centre of the viewer. Anchored to Overlay so it tracks the
+ *  same coordinate space as the BottomBar and doesn't get pushed off-
+ *  screen by the MediaCard's vertical envelope. */
 const ThumbStrip = styled.div`
+  position: absolute;
+  /* Sits ~12px above BottomBar (bottom: 18px + ~50px BottomBar height
+   *  + 12px breathing room ≈ 80px). */
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
   display: inline-flex;
   gap: 6px;
   padding: 6px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.3);
+  max-width: calc(100vw - 64px);
+  overflow-x: auto;
+  &::-webkit-scrollbar { display: none; }
+  @media (max-width: 900px) {
+    bottom: 64px;
+  }
 `;
 
 /** Inline comment toggle: lives inside the BottomBar next to the like button. */
@@ -1451,27 +1486,6 @@ export function Viewer({
         </HeaderTopRight>
       </TopBar>
 
-      {index > 0 && (
-        <NavBtn
-          dir="left"
-          panelOpen={commentsOpen}
-          onClick={() => onIndexChange(index - 1)}
-          aria-label="Previous"
-        >
-          ←
-        </NavBtn>
-      )}
-      {index < posts.length - 1 && (
-        <NavBtn
-          dir="right"
-          panelOpen={commentsOpen}
-          onClick={() => onIndexChange(index + 1)}
-          aria-label="Next"
-        >
-          →
-        </NavBtn>
-      )}
-
       <Stage panelOpen={commentsOpen}>
         <ImageColumn>
         <MediaCard>
@@ -1521,37 +1535,60 @@ export function Viewer({
             </CaptionStrip>
           )}
         </MediaCard>
-
-        {imageBundle.length > 1 && (
-          <ThumbStrip>
-            {imageBundle.map((url, i) => {
-              const isPdf = /\.pdf(?:[?#]|$)/i.test(url);
-              const thumbUrl = isPdf
-                ? url.replace(/\.pdf(?=[?#]|$)/i, '.pdf.thumb.jpg')
-                : url;
-              return (
-                <Thumb
-                  key={url + i}
-                  active={i === imgIdx}
-                  onClick={() => setImgIdx(i)}
-                  type="button"
-                  aria-label={isPdf ? `PDF ${i + 1}` : `이미지 ${i + 1}`}
-                >
-                  {isPdf ? (
-                    <PdfThumbnail
-                      thumbUrl={thumbUrl === url ? null : thumbUrl}
-                      size="sm"
-                    />
-                  ) : (
-                    <img src={url} alt="" />
-                  )}
-                </Thumb>
-              );
-            })}
-          </ThumbStrip>
-        )}
         </ImageColumn>
       </Stage>
+
+      {imageBundle.length > 1 && (
+        <ThumbStrip>
+          {imageBundle.map((url, i) => {
+            const isPdf = /\.pdf(?:[?#]|$)/i.test(url);
+            const thumbUrl = isPdf
+              ? url.replace(/\.pdf(?=[?#]|$)/i, '.pdf.thumb.jpg')
+              : url;
+            return (
+              <Thumb
+                key={url + i}
+                active={i === imgIdx}
+                onClick={() => setImgIdx(i)}
+                type="button"
+                aria-label={isPdf ? `PDF ${i + 1}` : `이미지 ${i + 1}`}
+              >
+                {isPdf ? (
+                  <PdfThumbnail
+                    thumbUrl={thumbUrl === url ? null : thumbUrl}
+                    size="sm"
+                  />
+                ) : (
+                  <img src={url} alt="" />
+                )}
+              </Thumb>
+            );
+          })}
+        </ThumbStrip>
+      )}
+
+      <CornerNavBtn
+        type="button"
+        dir="left"
+        panelOpen={commentsOpen}
+        onClick={() => index > 0 && onIndexChange(index - 1)}
+        disabled={index === 0}
+        aria-label="이전 게시물"
+        title="이전 게시물"
+      >
+        ←
+      </CornerNavBtn>
+      <CornerNavBtn
+        type="button"
+        dir="right"
+        panelOpen={commentsOpen}
+        onClick={() => index < posts.length - 1 && onIndexChange(index + 1)}
+        disabled={index === posts.length - 1}
+        aria-label="다음 게시물"
+        title="다음 게시물"
+      >
+        →
+      </CornerNavBtn>
 
       <Hint>{t('viewer.hint')}</Hint>
 
