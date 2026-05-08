@@ -442,13 +442,17 @@ const InlineMoreBtn = styled.button`
  * sidebar with the full content + comments.
  */
 const CaptionStrip = styled.button`
-  /* Sits inside MediaCard which already owns radius / clip / shadow,
-   *  so the strip itself is borderless and seamlessly attached to the
-   *  image's bottom edge. We deliberately rely on the column-flex
-   *  default align-self stretch instead of width 100 percent so the
-   *  caption never pushes MediaCard's width beyond the image. */
-  align-self: stretch;
-  min-width: 0; /* lets the strip shrink below its text min-content */
+  /* Sits inside MediaCard which already owns radius / clip / shadow.
+   *  The image dictates the card's natural width and gets centered in
+   *  the stage; the caption uses a comfortable reading width capped at
+   *  720px so a long Korean run wraps roughly at the example sentence
+   *  baseline. When the image is narrower than 720px the caption
+   *  shrinks to the image width instead. align-self: center keeps the
+   *  capped strip centered under wider images. */
+  align-self: center;
+  width: 100%;
+  max-width: 720px;
+  min-width: 0;
   box-sizing: border-box;
   padding: 12px 18px;
   display: flex;
