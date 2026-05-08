@@ -445,7 +445,7 @@ const CaptionStrip = styled.button`
   /* Sits inside MediaCard which already owns radius / clip / shadow,
    *  so the strip itself is borderless and seamlessly attached to the
    *  image's bottom edge. We deliberately rely on the column-flex
-   *  default `align-self: stretch` instead of `width: 100%` so the
+   *  default align-self stretch instead of width 100 percent so the
    *  caption never pushes MediaCard's width beyond the image. */
   align-self: stretch;
   min-width: 0; /* lets the strip shrink below its text min-content */
@@ -496,7 +496,7 @@ const CaptionStrip = styled.button`
     font-size: 13px;
     line-height: 1.55;
     color: rgba(255, 255, 255, 0.88);
-    /* `overflow-wrap: anywhere` keeps the description's min-content
+    /* overflow-wrap anywhere keeps the description's min-content
      *  narrow so a long Korean run can't push MediaCard wider than the
      *  image — caption width then always matches the photo. */
     overflow-wrap: anywhere;
