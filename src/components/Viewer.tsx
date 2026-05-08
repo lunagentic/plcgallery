@@ -1,5 +1,5 @@
 import styled from '@emotion/styled';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useIncrementDownloadCount, type PostWithAuthor } from '@/hooks/usePosts';
 import { PdfThumbnail } from '@/components/PdfThumbnail';
@@ -172,22 +172,6 @@ const HeaderTopRight = styled.div`
   padding-top: 4px;
 `;
 
-const PanelTagRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 4px;
-`;
-
-const PanelTagPill = styled.span`
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 11px;
-  font-weight: 600;
-`;
-
 const MiniAvatar = styled.span`
   width: 22px;
   height: 22px;
@@ -199,35 +183,6 @@ const MiniAvatar = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-`;
-
-const TitleInfoBtn = styled.button<{ visible: boolean }>`
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  color: #1a1714;
-  font-size: 14px;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  opacity: ${({ visible }) => (visible ? 1 : 0)};
-  transform: scale(${({ visible }) => (visible ? 1 : 0.6)});
-  pointer-events: ${({ visible }) => (visible ? 'auto' : 'none')};
-  transition:
-    opacity 200ms ease,
-    transform 200ms cubic-bezier(0.2, 0.85, 0.25, 1),
-    background 160ms ease;
-  &:hover {
-    background: #fff;
-  }
-  &::before {
-    content: 'ℹ';
-    font-style: italic;
-    font-family: 'Fraunces', serif;
-    line-height: 1;
-  }
 `;
 
 const RoundBtn = styled.button`
@@ -244,15 +199,21 @@ const RoundBtn = styled.button`
   }
 `;
 
-const Stage = styled.div`
+const Stage = styled.div<{ panelOpen: boolean }>`
   flex: 1;
   display: grid;
   place-items: center;
   padding: 96px 80px;
+  /* When the comment sidebar slides in, reserve its width on the right
+   *  so the image visibly shrinks and the right NavBtn sits cleanly on
+   *  the new edge instead of being hidden behind the panel. */
+  padding-right: ${({ panelOpen }) => (panelOpen ? '460px' : '80px')};
   position: relative;
   overflow: hidden;
+  transition: padding-right 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
   @media (max-width: 900px) {
     padding: 88px 16px 72px;
+    padding-right: ${({ panelOpen }) => (panelOpen ? '100vw' : '16px')};
   }
 `;
 
@@ -272,93 +233,33 @@ const ImageHost = styled.div`
   position: relative;
   display: inline-flex;
   max-width: 100%;
-  max-height: calc(100vh - 240px);
+  max-height: calc(100vh - 320px);
 `;
 
 const Img = styled.img`
   max-width: 100%;
-  max-height: calc(100vh - 240px);
+  /* Leaves room for the always-visible CaptionStrip below the photo. */
+  max-height: calc(100vh - 320px);
   object-fit: contain;
+  border-radius: 16px;
   box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.25);
   display: block;
 `;
 
-/** PDFs render via the browser's native viewer in an iframe. We size it to
- *  fit the same envelope as <Img> so the InfoPanel and thumb strip layout
- *  stay consistent across image / PDF posts. */
+/** PDFs render via the browser's native viewer in an iframe. Keep size
+ *  in lockstep with <Img> so the layout stays consistent. */
 const PdfFrame = styled.iframe`
   width: min(900px, 92vw);
-  height: calc(100vh - 240px);
+  height: calc(100vh - 320px);
   border: 0;
+  border-radius: 16px;
   background: #fff;
   box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.25);
   display: block;
 `;
 
-const InfoPanel = styled.aside<{ visible: boolean }>`
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: 20px 56px 20px 24px;
-  background: linear-gradient(
-    to bottom,
-    rgba(12, 10, 8, 0.62) 0%,
-    rgba(12, 10, 8, 0.42) 70%,
-    rgba(12, 10, 8, 0.06) 100%
-  );
-  backdrop-filter: blur(14px) saturate(130%);
-  -webkit-backdrop-filter: blur(14px) saturate(130%);
-  color: #ffffff;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 70%;
-  overflow-y: auto;
-  border-radius: 8px 8px 0 0;
-  z-index: 11;
-  pointer-events: ${({ visible }) => (visible ? 'auto' : 'none')};
-  opacity: ${({ visible }) => (visible ? 1 : 0)};
-  transform: translateY(${({ visible }) => (visible ? '0' : '-8%')});
-  transition:
-    transform 320ms cubic-bezier(0.2, 0.85, 0.25, 1),
-    opacity 220ms cubic-bezier(0.4, 0, 0.2, 1);
-  @media (max-width: 900px) {
-    padding: 16px 44px 16px 18px;
-  }
-`;
-
-const PanelCloseBtn = styled.button`
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(8px);
-  color: rgba(255, 255, 255, 0.95);
-  font-size: 14px;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-  &:hover {
-    background: rgba(255, 255, 255, 0.32);
-  }
-`;
-
-const Body = styled.p`
-  font-size: 13px;
-  line-height: 1.7;
-  color: rgba(255, 255, 255, 0.85);
-  white-space: pre-wrap;
-  word-break: keep-all;
-  margin: 0;
-`;
-
 /** Inline "더보기" link rendered after the truncated description in the
- *  InfoPanel. Picking up the panel's white-on-dark color so it reads as
- *  part of the body text but underlined to look clearly clickable. */
+ *  sidebar's compact mode. */
 const InlineMoreBtn = styled.button`
   margin-left: 6px;
   padding: 0;
@@ -375,23 +276,86 @@ const InlineMoreBtn = styled.button`
   }
 `;
 
-const TipBox = styled.div`
-  background: rgba(255, 174, 92, 0.18);
-  border-left: 2px solid rgba(255, 174, 92, 0.7);
-  padding: 10px 12px;
-  border-radius: 0 8px 8px 0;
-  font-size: 12px;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.92);
-  &::before {
-    content: '💡 입력 꿀팁';
-    display: block;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: rgba(255, 174, 92, 0.95);
+/**
+ * Caption strip rendered immediately below the photo. Replaces the old
+ * hover-only InfoPanel with a permanently visible preview that doesn't
+ * cover the image. Click anywhere on the strip to open the right
+ * sidebar with the full content + comments.
+ */
+const CaptionStrip = styled.button`
+  /* Hug the image width (Instagram caption style). ImageColumn is
+   *  inline-flex shrink-to-fit, so width:100% resolves to whatever the
+   *  rendered image takes. The max-width clamp keeps us inside the
+   *  image envelope when the column ever stretches. */
+  width: 100%;
+  max-width: min(900px, 92vw);
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+  &:hover {
+    background: rgba(255, 255, 255, 0.92);
+  }
+  &:active {
+    transform: scale(0.995);
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tag {
+    font-size: 11px;
     font-weight: 700;
-    margin-bottom: 4px;
+    color: #5a3211;
+    background: rgba(255, 174, 92, 0.18);
+    border: 1px solid rgba(255, 174, 92, 0.35);
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .desc {
+    font-size: 13px;
+    line-height: 1.55;
+    color: rgba(26, 23, 20, 0.92);
+    word-break: keep-all;
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .tip {
+    font-size: 11px;
+    line-height: 1.45;
+    color: #5a3211;
+    background: rgba(255, 174, 92, 0.14);
+    border-left: 2px solid rgba(255, 174, 92, 0.65);
+    padding: 6px 8px;
+    border-radius: 0 6px 6px 0;
+    word-break: keep-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+  }
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: rgba(26, 23, 20, 0.55);
   }
 `;
 
@@ -451,11 +415,16 @@ const DeleteBtn = styled.button`
   }
 `;
 
-const NavBtn = styled.button<{ dir: 'left' | 'right' }>`
+const NavBtn = styled.button<{ dir: 'left' | 'right'; panelOpen: boolean }>`
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  ${({ dir }) => (dir === 'left' ? 'left: 24px;' : 'right: 24px;')}
+  /* Right arrow shifts past the comment sidebar when it slides in so it
+   *  doesn't get hidden under the panel. Left arrow stays put. */
+  ${({ dir, panelOpen }) =>
+    dir === 'left'
+      ? 'left: 24px;'
+      : `right: ${panelOpen ? '404px' : '24px'};`}
   width: 52px;
   height: 52px;
   border-radius: 999px;
@@ -466,13 +435,17 @@ const NavBtn = styled.button<{ dir: 'left' | 'right' }>`
   place-items: center;
   z-index: 12;
   box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.2);
+  transition: right 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
   &:hover {
     background: #fff;
   }
   @media (max-width: 900px) {
     width: 40px;
     height: 40px;
-    ${({ dir }) => (dir === 'left' ? 'left: 10px;' : 'right: 10px;')}
+    ${({ dir, panelOpen }) =>
+      dir === 'left'
+        ? 'left: 10px;'
+        : `right: ${panelOpen ? 'calc(100vw - 40px)' : '10px'};`}
   }
 `;
 
@@ -1050,19 +1023,6 @@ export function Viewer({
   isAdmin,
 }: ViewerProps) {
   const { t } = useTranslation();
-  /**
-   * Panel visibility model:
-   *  - Hover the image area → panel slides down from below the TopBar.
-   *  - Mouse leaves the image area → panel slides back up.
-   *  - Explicit X button → panel hides AND we set "manualClosed" so hover
-   *    no longer auto-shows it. The user must use the ℹ button next to
-   *    the title to re-open.
-   *  - Click the title-side ℹ button → panel re-opens (and clears
-   *    manualClosed so hover behavior resumes).
-   *  - The ℹ button is visible whenever the panel is closed.
-   */
-  const [panelVisible, setPanelVisible] = useState(false);
-  const [manualClosed, setManualClosed] = useState(false);
   const [imgIdx, setImgIdx] = useState(0);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -1092,50 +1052,15 @@ export function Viewer({
   const incrementDownload = useIncrementDownloadCount();
   const totalComments = threads.reduce((acc, t) => acc + 1 + t.replies.length, 0);
 
-  const handleHoverEnter = useCallback(() => {
-    if (manualClosed) return;
-    // While the comment sidebar is open the same content is already shown
-    // there (or one click away via the details toggle) — popping the on-
-    // image InfoPanel as well duplicates info and partially covers the
-    // image. Suppress the hover-open path entirely in that case.
-    if (commentsOpen) return;
-    setPanelVisible(true);
-  }, [manualClosed, commentsOpen]);
-
-  const handleHoverLeave = useCallback(() => {
-    if (manualClosed) return;
-    if (commentsOpen) return;
-    setPanelVisible(false);
-  }, [manualClosed, commentsOpen]);
-
-  const handleClosePanel = useCallback(() => {
-    setPanelVisible(false);
-    setManualClosed(true);
-  }, []);
-
-  const handleOpenPanel = useCallback(() => {
-    setManualClosed(false);
-    setPanelVisible(true);
-  }, []);
-
   // Reset state on each post change
   useEffect(() => {
     setImgIdx(0);
-    setPanelVisible(false);
-    setManualClosed(false);
     setReplyTo(null);
     setEditingCommentId(null);
     setEditingDraft('');
     setComposeText('');
     setDetailsExpanded(true);
   }, [index]);
-
-  // Hide the on-image InfoPanel as soon as the sidebar opens — the same
-  // content lives in the sidebar's details section, so showing both at
-  // once is redundant noise.
-  useEffect(() => {
-    if (commentsOpen) setPanelVisible(false);
-  }, [commentsOpen]);
 
   const copyPanelContent = async () => {
     if (!post) return;
@@ -1192,7 +1117,6 @@ export function Viewer({
     !!post.description ||
     !!post.tip_text ||
     (post.tags && post.tags.length > 0);
-  const hasInfo = hasBody;
 
   // Build the bundle list. Prefer image_paths (new bundled format).
   // Fall back to the single image_path for legacy posts.
@@ -1272,15 +1196,6 @@ export function Viewer({
           <span className="idx">
             {index + 1} / {posts.length}
           </span>
-          {hasInfo && (
-            <TitleInfoBtn
-              visible={!panelVisible}
-              type="button"
-              onClick={handleOpenPanel}
-              aria-label="내용 보기"
-              title="내용 보기"
-            />
-          )}
           <RoundBtn onClick={onClose} aria-label="Close">
             <CloseIcon />
           </RoundBtn>
@@ -1288,22 +1203,29 @@ export function Viewer({
       </TopBar>
 
       {index > 0 && (
-        <NavBtn dir="left" onClick={() => onIndexChange(index - 1)} aria-label="Previous">
+        <NavBtn
+          dir="left"
+          panelOpen={commentsOpen}
+          onClick={() => onIndexChange(index - 1)}
+          aria-label="Previous"
+        >
           ←
         </NavBtn>
       )}
       {index < posts.length - 1 && (
-        <NavBtn dir="right" onClick={() => onIndexChange(index + 1)} aria-label="Next">
+        <NavBtn
+          dir="right"
+          panelOpen={commentsOpen}
+          onClick={() => onIndexChange(index + 1)}
+          aria-label="Next"
+        >
           →
         </NavBtn>
       )}
 
-      <Stage>
+      <Stage panelOpen={commentsOpen}>
         <ImageColumn>
-        <ImageHost
-          onMouseEnter={handleHoverEnter}
-          onMouseLeave={handleHoverLeave}
-        >
+        <ImageHost>
           {currentIsPdf ? (
             <PdfFrame
               src={currentImageUrl}
@@ -1319,47 +1241,30 @@ export function Viewer({
               style={{ background: 'rgba(255,255,255,0.2)' }}
             />
           )}
-
-          {hasBody && (
-            <InfoPanel visible={panelVisible} aria-hidden={!panelVisible}>
-              <PanelCloseBtn
-                onClick={handleClosePanel}
-                type="button"
-                aria-label="패널 닫기"
-                title="닫기"
-              >
-                <CloseIcon />
-              </PanelCloseBtn>
-              {post.tags && post.tags.length > 0 && (
-                <PanelTagRow>
-                  {post.tags.map((tag) => (
-                    <PanelTagPill key={tag}>#{tag}</PanelTagPill>
-                  ))}
-                </PanelTagRow>
-              )}
-              {post.tip_text && <TipBox>{post.tip_text}</TipBox>}
-              {post.description && (
-                post.description.length > PANEL_DESC_TRUNCATE ? (
-                  <Body>
-                    {post.description.slice(0, PANEL_DESC_TRUNCATE).trimEnd()}
-                    …
-                    <InlineMoreBtn
-                      type="button"
-                      onClick={() => {
-                        setDetailsExpanded(true);
-                        setCommentsOpen(true);
-                      }}
-                    >
-                      더보기
-                    </InlineMoreBtn>
-                  </Body>
-                ) : (
-                  <Body>{post.description}</Body>
-                )
-              )}
-            </InfoPanel>
-          )}
         </ImageHost>
+
+        {hasBody && (
+          <CaptionStrip
+            type="button"
+            onClick={() => {
+              setDetailsExpanded(true);
+              setCommentsOpen(true);
+            }}
+            aria-label="내용 자세히 보기"
+            title="내용 자세히 보기"
+          >
+            {post.tags && post.tags.length > 0 && (
+              <div className="tags">
+                {post.tags.slice(0, 6).map((tag) => (
+                  <span key={tag} className="tag">#{tag}</span>
+                ))}
+              </div>
+            )}
+            {post.description && <p className="desc">{post.description}</p>}
+            {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
+            <div className="footer">자세히 →</div>
+          </CaptionStrip>
+        )}
 
         {imageBundle.length > 1 && (
           <ThumbStrip>
