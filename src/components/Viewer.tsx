@@ -384,8 +384,9 @@ const ZoomNavBtn = styled.button<{ dir: 'left' | 'right' }>`
 `;
 
 /** Hint pill in the zoom overlay's corner — gives a soft "esc to close"
- *  affordance. Fades in late so the image lift reads first. */
-const ZoomHint = styled.div`
+ *  affordance. Fades in on first reveal, then auto-hides after 3s per
+ *  photo so it doesn't linger over the artwork. */
+const ZoomHint = styled.div<{ visible: boolean }>`
   position: fixed;
   top: 24px;
   right: 24px;
@@ -398,11 +399,12 @@ const ZoomHint = styled.div`
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
-  animation: hintFade 480ms ease 200ms both;
-  @keyframes hintFade {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+  pointer-events: none;
+  opacity: ${({ visible }) => (visible ? 1 : 0)};
+  transform: translateY(${({ visible }) => (visible ? '0' : '-4px')});
+  transition:
+    opacity 480ms ease,
+    transform 480ms ease;
 `;
 
 /** PDFs render via the browser's native viewer in an iframe. Keep size
@@ -442,8 +444,12 @@ const InlineMoreBtn = styled.button`
 const CaptionStrip = styled.button`
   /* Sits inside MediaCard which already owns radius / clip / shadow,
    *  so the strip itself is borderless and seamlessly attached to the
-   *  image's bottom edge. */
-  width: 100%;
+   *  image's bottom edge. We deliberately rely on the column-flex
+   *  default `align-self: stretch` instead of `width: 100%` so the
+   *  caption never pushes MediaCard's width beyond the image. */
+  align-self: stretch;
+  min-width: 0; /* lets the strip shrink below its text min-content */
+  box-sizing: border-box;
   padding: 12px 18px;
   display: flex;
   flex-direction: column;
@@ -490,12 +496,17 @@ const CaptionStrip = styled.button`
     font-size: 13px;
     line-height: 1.55;
     color: rgba(255, 255, 255, 0.88);
-    word-break: keep-all;
+    /* `overflow-wrap: anywhere` keeps the description's min-content
+     *  narrow so a long Korean run can't push MediaCard wider than the
+     *  image — caption width then always matches the photo. */
+    overflow-wrap: anywhere;
+    word-break: break-word;
     margin: 0;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    min-width: 0;
   }
   .tip {
     font-size: 11px;
@@ -505,12 +516,14 @@ const CaptionStrip = styled.button`
     border-left: 2px solid rgba(255, 174, 92, 0.65);
     padding: 6px 8px;
     border-radius: 0 6px 6px 0;
-    word-break: keep-all;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
+    min-width: 0;
   }
   .footer {
     display: flex;
@@ -1223,6 +1236,10 @@ export function Viewer({
   // full-screen lightbox with a darker backdrop. Click anywhere or hit
   // Esc to exit. Doesn't apply to PDFs (they have their own viewer).
   const [imageZoomed, setImageZoomed] = useState(false);
+  // Lightbox hint pill visibility. Reset (re-shown) on every photo
+  // change while zoomed; auto-fades after 3s so the artwork can
+  // breathe.
+  const [zoomHintVisible, setZoomHintVisible] = useState(true);
   const [composeText, setComposeText] = useState('');
   const [replyTo, setReplyTo] = useState<{ id: string; nickname: string | null } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -1252,6 +1269,15 @@ export function Viewer({
     // Intentionally NOT clearing `imageZoomed` here so the user can
     // arrow / click through posts while staying in the lightbox view.
   }, [index]);
+
+  // Show the lightbox hint pill for 3s every time the user opens the
+  // zoom OR moves to a new photo while zoomed, then auto-fade it.
+  useEffect(() => {
+    if (!imageZoomed) return;
+    setZoomHintVisible(true);
+    const timer = setTimeout(() => setZoomHintVisible(false), 3000);
+    return () => clearTimeout(timer);
+  }, [imageZoomed, index, imgIdx]);
 
   const copyPanelContent = async () => {
     if (!post) return;
@@ -1893,7 +1919,9 @@ export function Viewer({
               →
             </ZoomNavBtn>
           )}
-          <ZoomHint>클릭 또는 ESC로 닫기 · ← → 이동</ZoomHint>
+          <ZoomHint visible={zoomHintVisible}>
+            클릭 또는 ESC로 닫기 · ← → 이동
+          </ZoomHint>
         </>
       )}
     </Overlay>
