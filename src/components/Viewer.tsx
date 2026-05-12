@@ -1120,7 +1120,26 @@ const FullscreenCaptionOverlay = styled.div`
   background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.6));
   color: rgba(255, 255, 255, 0.92);
   pointer-events: none;
-  .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; pointer-events: none; }
+  /* The title/author bubble doubles as a panel-toggle hotspot: clicking
+   *  it slides the side panel open so users can dive straight into the
+   *  full caption + comments without hunting for the corner toggle. */
+  .meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    pointer-events: auto;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    padding: 4px 0;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    transition: opacity 0.15s ease;
+  }
+  .meta:hover { opacity: 0.85; }
+  .meta:active { opacity: 0.7; }
   .meta-title { font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.96); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta-author { font-size: 11px; color: rgba(255, 255, 255, 0.6); }
   .actions { display: inline-flex; gap: 8px; pointer-events: auto; flex-shrink: 0; }
@@ -2075,15 +2094,27 @@ export function Viewer({
               <ThumbStrip>{thumbChildren}</ThumbStrip>
             )}
 
-            {!panelOpen && (
-              <FullscreenCaptionOverlay>
-                <div className="meta">
-                  <div className="meta-title">{post.title}</div>
-                  <div className="meta-author">
-                    {post.team_name ? `${post.team_name} · ` : ''}
-                    {post.author_nickname ?? '작가 미상'}
-                  </div>
+            {/* Caption overlay is always rendered so the title doubles as
+             *  the panel toggle in both directions — click to open
+             *  when the panel is closed, click again to close it. Action
+             *  buttons collapse to nothing when the panel is open since
+             *  the panel itself carries the same row. */}
+            <FullscreenCaptionOverlay>
+              <button
+                type="button"
+                className="meta"
+                onClick={() => setPanelOpen((v) => !v)}
+                aria-label={panelOpen ? '패널 닫기' : '패널 열기'}
+                aria-expanded={panelOpen}
+                title={panelOpen ? '제목을 다시 클릭하면 패널이 닫혀요' : '제목을 클릭하면 패널이 열려요'}
+              >
+                <div className="meta-title">{post.title}</div>
+                <div className="meta-author">
+                  {post.team_name ? `${post.team_name} · ` : ''}
+                  {post.author_nickname ?? '작가 미상'}
                 </div>
+              </button>
+              {!panelOpen && (
                 <div className="actions">
                   <OverlayActionBtn
                     active={isLiked}
@@ -2119,8 +2150,8 @@ export function Viewer({
                     <ClipboardIcon />
                   </OverlayActionBtn>
                 </div>
-              </FullscreenCaptionOverlay>
-            )}
+              )}
+            </FullscreenCaptionOverlay>
           </Stage>
 
           <CommentPanel id="viewer-comment-panel" aria-hidden={!panelOpen}>
