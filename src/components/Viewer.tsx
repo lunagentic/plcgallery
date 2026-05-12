@@ -1515,6 +1515,54 @@ export function Viewer({
   const currentImageUrl = imageBundle[safeIdx] ?? '';
   const currentIsPdf = /\.pdf(?:[?#]|$)/i.test(currentImageUrl);
 
+  /*
+   * Preload the neighboring posts' first images so navigation feels
+   * instant. The Supabase storage CDN already sets `max-age=3600`
+   * which keeps the browser cache warm once an image has been fetched
+   * once — preloading just makes that first-fetch happen while the
+   * user is still looking at the current photo instead of after they
+   * click the arrow.
+   *
+   * We only preload one frame deep (n-1 and n+1) — going further is
+   * usually wasted bandwidth because most viewers don't paginate
+   * past 1-2 posts before leaving the viewer.
+   */
+  useEffect(() => {
+    const preloadFirstImage = (i: number) => {
+      const p = posts[i];
+      if (!p) return;
+      const path =
+        p.image_paths && p.image_paths.length > 0
+          ? p.image_paths[0]
+          : p.image_path;
+      if (!path) return;
+      // Skip PDFs — they render via an iframe, not <img>, so an
+      // Image() prefetch would waste bandwidth that the iframe won't
+      // reuse anyway.
+      if (/\.pdf(?:[?#]|$)/i.test(path)) return;
+      const url = getPublicImageUrl(path);
+      if (!url) return;
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    };
+    preloadFirstImage(index - 1);
+    preloadFirstImage(index + 1);
+    // Also warm up the rest of the current post's bundle so flipping
+    // through multi-image posts via the thumb strip is instant.
+    for (let i = 1; i < imageBundle.length; i++) {
+      const url = imageBundle[i];
+      if (!url) continue;
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    }
+    // `imageBundle` is a fresh array each render but the URLs inside
+    // are stable for a given post — depend on `index` + posts ref so
+    // the effect only re-runs on actual post navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, posts]);
+
   // Per-post stage tint (legacy `stage_bg`) — falls back to the warm
   // cream that matches the home page so the viewer reads as part of
   // the gallery rather than a darkroom modal.
@@ -1607,6 +1655,10 @@ export function Viewer({
   // The image (or PDF iframe) for the current post, rendered identically
   // in desktop MediaCard and the mobile image region. Click toggles the
   // zoom lightbox; PDFs use the native browser viewer.
+  // The image (or PDF iframe) for the current post. Loading hints
+  // (`eager` + `fetchpriority="high"` + `decoding="async"`) tell the
+  // browser this is the focal image of the page so it gets prioritized
+  // over the background-prefetched neighbor posts.
   const renderedMedia = currentIsPdf ? (
     <PdfFrame src={currentImageUrl} title={post.title} />
   ) : (
@@ -1616,7 +1668,14 @@ export function Viewer({
       aria-label="이미지 크게 보기"
       title="크게 보기"
     >
-      <Img src={currentImageUrl} alt={post.title} />
+      <Img
+        src={currentImageUrl}
+        alt={post.title}
+        loading="eager"
+        decoding="async"
+        // @ts-expect-error — fetchPriority is valid HTML but missing from React's type defs in this version
+        fetchpriority="high"
+      />
     </ImagePressable>
   );
 
@@ -1626,6 +1685,10 @@ export function Viewer({
     <img
       src={currentImageUrl}
       alt={post.title}
+      loading="eager"
+      decoding="async"
+      // @ts-expect-error — see note on the desktop variant above
+      fetchpriority="high"
       onClick={() => setImageZoomed(true)}
       style={{ cursor: 'zoom-in' }}
     />
@@ -1634,6 +1697,9 @@ export function Viewer({
   // Thumb strip is shared but the *positioning* differs per layout
   // (absolute on desktop, in-flow on mobile). We only render the
   // <Thumb> children here; the container wrapper is layout-specific.
+  // `loading="eager"` because these tiny strips ride right beneath
+  // the main photo — lazy would defer them past the user's expected
+  // click target.
   const thumbChildren = imageBundle.length > 1 && imageBundle.map((url, i) => {
     const isPdf = /\.pdf(?:[?#]|$)/i.test(url);
     const thumbUrl = isPdf ? url.replace(/\.pdf(?=[?#]|$)/i, '.pdf.thumb.jpg') : url;
@@ -1648,7 +1714,7 @@ export function Viewer({
         {isPdf ? (
           <PdfThumbnail thumbUrl={thumbUrl === url ? null : thumbUrl} size="sm" />
         ) : (
-          <img src={url} alt="" />
+          <img src={url} alt="" loading="eager" decoding="async" />
         )}
       </Thumb>
     );
@@ -2266,7 +2332,14 @@ export function Viewer({
              *  the way Behance's lightbox treats the image as a single
              *  toggle target. Nav arrows below stop propagation so they
              *  page through posts without dismissing the lightbox. */}
-            <ZoomedImg src={currentImageUrl} alt={post.title} />
+            <ZoomedImg
+              src={currentImageUrl}
+              alt={post.title}
+              loading="eager"
+              decoding="async"
+              // @ts-expect-error — fetchPriority is valid HTML but missing from React's type defs
+              fetchpriority="high"
+            />
           </ZoomOverlay>
           {index > 0 && (
             <ZoomNavBtn
