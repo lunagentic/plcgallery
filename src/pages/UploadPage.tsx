@@ -113,17 +113,31 @@ const PreviewGrid = styled.div`
   margin-top: 16px;
 `;
 
-const PreviewItem = styled.div`
+const PreviewItem = styled.div<{ isCover?: boolean; isDragOver?: boolean }>`
   position: relative;
   aspect-ratio: 1 / 1;
   border-radius: 12px;
   overflow: hidden;
   background: ${({ theme }) => theme.surface};
+  /* Drag affordance: a thick cover ring + a softer drop-target ring so
+   *  reordering reads visually as you drag a tile across the grid. */
+  outline: ${({ isCover, isDragOver, theme }) =>
+    isDragOver
+      ? `3px dashed ${theme.brand}`
+      : isCover
+        ? `3px solid ${theme.brand}`
+        : 'none'};
+  outline-offset: ${({ isCover, isDragOver }) =>
+    isCover || isDragOver ? '-3px' : '0'};
+  cursor: grab;
+  transition: outline-color 0.15s ease, transform 0.15s ease;
+  &:active { cursor: grabbing; }
   img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
+    pointer-events: none;
   }
 `;
 
@@ -139,22 +153,54 @@ const RemoveBtn = styled.button`
   font-size: 13px;
   display: grid;
   place-items: center;
+  z-index: 2;
   &:hover {
     background: rgba(0, 0, 0, 0.9);
   }
 `;
 
-const IndexBadge = styled.span`
+/**
+ * "Move to front" pill. Shown on every non-cover preview tile so the
+ * user can promote any photo to be the post's cover with one click.
+ * Pairs with the HTML5 drag handlers on PreviewItem — both routes
+ * (button + drag-to-position-0) end up calling moveToFront(id).
+ */
+const MakeCoverBtn = styled.button`
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  z-index: 2;
+  cursor: pointer;
+  &:hover {
+    background: rgba(0, 0, 0, 0.9);
+  }
+`;
+
+const IndexBadge = styled.span<{ isCover?: boolean }>`
   position: absolute;
   bottom: 6px;
   left: 6px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #1a1714;
+  background: ${({ isCover, theme }) =>
+    isCover ? theme.brand : 'rgba(255, 255, 255, 0.9)'};
+  color: ${({ isCover, theme }) => (isCover ? theme.ctaText : '#1a1714')};
   border-radius: 999px;
   padding: 3px 8px;
   font-size: 10px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 `;
 
 const SizeBadge = styled.span<{ over: boolean }>`
@@ -567,6 +613,71 @@ export default function UploadPage() {
     });
   };
 
+  /**
+   * Promote a preview tile to the cover slot. The first entry in the
+   * files array is the post's representative photo (PostTile.tsx,
+   * MoodboardCover.tsx, and viewers all key off `image_paths[0]`),
+   * so moving an entry to index 0 IS the "change cover" action.
+   */
+  const moveToFront = (id: string) => {
+    setFiles((prev) => {
+      const i = prev.findIndex((f) => f.id === id);
+      if (i <= 0) return prev;
+      const next = prev.slice();
+      const [picked] = next.splice(i, 1);
+      next.unshift(picked);
+      return next;
+    });
+  };
+
+  /** Reorder via drag-and-drop. `dragId` tracks which tile started the
+   *  drag; on drop we insert it just before the drop target (or at the
+   *  end when dropped on itself). Cover sync is automatic — moving any
+   *  tile to position 0 turns it into the cover. */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const handleDragStart = (id: string) => (e: React.DragEvent) => {
+    setDragId(id);
+    // Tell Chrome/Firefox the operation is a move (changes cursor + ghost).
+    e.dataTransfer.effectAllowed = 'move';
+    try {
+      // dataTransfer requires a payload in some browsers (Firefox) — id works.
+      e.dataTransfer.setData('text/plain', id);
+    } catch {
+      // ignore — Safari rejects when the dataTransfer is in an inconsistent state
+    }
+  };
+  const handleDragOver = (id: string) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dropTargetId !== id) setDropTargetId(id);
+  };
+  const handleDragLeave = (id: string) => () => {
+    if (dropTargetId === id) setDropTargetId(null);
+  };
+  const handleDrop = (targetId: string) => (e: React.DragEvent) => {
+    e.preventDefault();
+    const sourceId = dragId ?? e.dataTransfer.getData('text/plain');
+    setDragId(null);
+    setDropTargetId(null);
+    if (!sourceId || sourceId === targetId) return;
+    setFiles((prev) => {
+      const srcIdx = prev.findIndex((f) => f.id === sourceId);
+      const tgtIdx = prev.findIndex((f) => f.id === targetId);
+      if (srcIdx < 0 || tgtIdx < 0) return prev;
+      const next = prev.slice();
+      const [picked] = next.splice(srcIdx, 1);
+      // Removing from a position before the target shifts the target left by 1.
+      const insertAt = srcIdx < tgtIdx ? tgtIdx : tgtIdx;
+      next.splice(insertAt, 0, picked);
+      return next;
+    });
+  };
+  const handleDragEnd = () => {
+    setDragId(null);
+    setDropTargetId(null);
+  };
+
   const clearAll = () => {
     files.forEach((f) => URL.revokeObjectURL(f.previewUrl));
     setFiles([]);
@@ -723,6 +834,11 @@ export default function UploadPage() {
                 <span>
                   {files.length}장 · {(totalBytes / (1024 * 1024)).toFixed(1)}MB{' '}
                   {hasOverSized && <strong style={{ color: '#E04545' }}>· 초과 파일 있음</strong>}
+                  {files.length > 1 && (
+                    <span style={{ marginLeft: 8, opacity: 0.7 }}>
+                      · 드래그하거나 ★ 버튼으로 대표 사진을 바꿀 수 있어요
+                    </span>
+                  )}
                 </span>
                 <button className="clear" onClick={clearAll} type="button">
                   전체 삭제
@@ -732,8 +848,25 @@ export default function UploadPage() {
                 {files.map((f, idx) => {
                   const mb = (f.file.size / (1024 * 1024)).toFixed(1);
                   const over = f.file.size > MAX_FILE_BYTES;
+                  const isCover = idx === 0;
+                  const isDragOver = dropTargetId === f.id && dragId !== f.id;
                   return (
-                    <PreviewItem key={f.id}>
+                    <PreviewItem
+                      key={f.id}
+                      isCover={isCover}
+                      isDragOver={isDragOver}
+                      draggable
+                      onDragStart={handleDragStart(f.id)}
+                      onDragOver={handleDragOver(f.id)}
+                      onDragLeave={handleDragLeave(f.id)}
+                      onDrop={handleDrop(f.id)}
+                      onDragEnd={handleDragEnd}
+                      title={
+                        isCover
+                          ? '대표 사진 (게시물 목록·홈에서 미리보기로 사용돼요)'
+                          : '드래그하거나 ★ 버튼으로 대표 사진으로 만들 수 있어요'
+                      }
+                    >
                       {f.kind === 'pdf' ? (
                         // No rendered thumb yet (we render on upload), so
                         // PdfThumbnail falls back to its placeholder visual.
@@ -741,8 +874,18 @@ export default function UploadPage() {
                       ) : (
                         <img src={f.previewUrl} alt={f.file.name} />
                       )}
-                      <IndexBadge>
-                        {idx === 0 ? '커버' : String(idx + 1).padStart(2, '0')}
+                      {!isCover && (
+                        <MakeCoverBtn
+                          type="button"
+                          onClick={() => moveToFront(f.id)}
+                          aria-label="대표 사진으로 지정"
+                          title="대표 사진으로 지정 (맨 앞으로 이동)"
+                        >
+                          ★ 대표로
+                        </MakeCoverBtn>
+                      )}
+                      <IndexBadge isCover={isCover}>
+                        {isCover ? <>★ 대표</> : String(idx + 1).padStart(2, '0')}
                       </IndexBadge>
                       <SizeBadge over={over}>{mb}MB</SizeBadge>
                       <RemoveBtn
