@@ -28,6 +28,14 @@ const Inner = styled.div`
     padding: 12px 20px;
     gap: 16px;
   }
+  /* Phones: keep the 3-track grid so the centered nav is reachable, but
+   *  tighten gap + padding so everything fits in one line. The Korean
+   *  vertical-stack bug is held off by the nowrap/flex-shrink rules on
+   *  Nav/NavItem (see below) rather than by hiding the nav. */
+  @media (max-width: 700px) {
+    padding: 10px 10px;
+    gap: 6px;
+  }
 `;
 
 const Logo = styled(Link)`
@@ -38,6 +46,8 @@ const Logo = styled(Link)`
   font-size: 16px;
   letter-spacing: -0.01em;
   color: ${({ theme }) => theme.text};
+  flex-shrink: 0;
+  white-space: nowrap;
   em {
     color: ${({ theme }) => theme.brand};
     font-style: normal;
@@ -48,6 +58,11 @@ const Nav = styled.nav`
   display: flex;
   gap: 8px;
   justify-content: center;
+  white-space: nowrap;
+  min-width: 0;
+  @media (max-width: 700px) {
+    gap: 2px;
+  }
 `;
 
 const NavItem = styled(NavLink)`
@@ -56,6 +71,8 @@ const NavItem = styled(NavLink)`
   font-size: 13px;
   font-weight: 600;
   color: ${({ theme }) => theme.textMuted};
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.15s ease;
   &:hover {
     color: ${({ theme }) => theme.text};
@@ -65,12 +82,17 @@ const NavItem = styled(NavLink)`
     color: ${({ theme }) => theme.text};
     background: ${({ theme }) => theme.surface2};
   }
+  @media (max-width: 700px) {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
 `;
 
 const Actions = styled.div`
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
 `;
 
 const IconBtn = styled.button`
@@ -86,6 +108,10 @@ const IconBtn = styled.button`
   &:hover {
     color: ${({ theme }) => theme.text};
     border-color: ${({ theme }) => theme.borderStrong};
+  }
+  @media (max-width: 700px) {
+    padding: 6px 8px;
+    font-size: 11px;
   }
 `;
 
@@ -109,8 +135,14 @@ const JoinCta = styled(Link)`
   color: ${({ theme }) => theme.ctaText};
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
   &:hover {
     background: ${({ theme }) => theme.ctaHover};
+  }
+  @media (max-width: 700px) {
+    padding: 6px 10px;
+    font-size: 11px;
   }
 `;
 
@@ -200,7 +232,7 @@ export function Topbar() {
           </IconBtn>
           <IconBtn onClick={switchLang}>{i18n.language.startsWith('ko') ? 'KO' : 'EN'}</IconBtn>
           {guest ? (
-            <JoinCta to="/welcome">팀에 들어가기 →</JoinCta>
+            <JoinCta to="/welcome">입장하기</JoinCta>
           ) : (
             <Avatar
               bg={dot}
