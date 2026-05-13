@@ -1,6 +1,6 @@
 import styled from '@emotion/styled';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation, Trans } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Field, FieldHint } from '@/components/ui/Input';
@@ -389,11 +389,26 @@ const PersonalRow = styled.div`
 export default function OnboardingPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [step, setStep] = useState<Step>('choice');
   const [teamName, setTeamName] = useState('');
   const [nickname, setNickname] = useState(() => readStorage(STORAGE_KEY_NICKNAME));
   const [color, setColor] = useState<string>(TEAM_COLORS[3].hex);
-  const [inviteCode, setInviteCode] = useState(() => readStorage(STORAGE_KEY_CODE));
+  // Combined `?code=KB-XXXX-YYYY` deep links populate the invite-code
+  // field on first render. We seed the state from the URL when present
+  // (otherwise fall back to localStorage), then strip `code` from the
+  // URL via setSearchParams so the credential doesn't linger in browser
+  // history / bookmarks longer than necessary. The user still has to
+  // press [입장하기] to actually submit — we never auto-submit a code
+  // that came from the URL.
+  const [inviteCode, setInviteCode] = useState(() => {
+    if (typeof window === 'undefined') return readStorage(STORAGE_KEY_CODE);
+    const urlCode = new URLSearchParams(window.location.search).get('code')?.trim().toUpperCase();
+    if (urlCode && /^KB-[A-Z2-9]{4,8}(-[A-Z2-9]{4,8})?$/.test(urlCode)) {
+      return urlCode;
+    }
+    return readStorage(STORAGE_KEY_CODE);
+  });
   const [history, setHistory] = useState<string[]>(() => readHistory());
   const [createdCode, setCreatedCode] = useState('');
   const [createdPersonalCode, setCreatedPersonalCode] = useState('');
@@ -405,6 +420,23 @@ export default function OnboardingPage() {
   const createTeam = useCreateTeam();
   const joinTeam = useJoinTeam();
   const resumeSession = useResumeSession();
+
+  // Once we've captured `?code=...` into state, strip it from the URL so
+  // the secret doesn't sit in the address bar / bookmarks. Also jump
+  // straight to the join step so the prefilled code is immediately
+  // actionable — otherwise the user lands on the choice screen and the
+  // prefill is invisible.
+  useEffect(() => {
+    if (searchParams.get('code')) {
+      setStep('join');
+      const next = new URLSearchParams(searchParams);
+      next.delete('code');
+      setSearchParams(next, { replace: true });
+    }
+    // We only react to the *initial* URL; subsequent navigation handles
+    // its own state. Empty dep list is intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const switchLang = () => {
     const next = i18n.language.startsWith('ko') ? 'en' : 'ko';

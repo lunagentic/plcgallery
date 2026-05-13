@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useUIStore } from '@/store/uiStore';
+import { MyCodeModal } from '@/components/MyCodeModal';
 
 const Bar = styled.header`
   position: sticky;
@@ -176,6 +177,11 @@ export function Topbar() {
   const [adminOn, setAdminOn] = useState<boolean>(
     typeof window !== 'undefined' && !!localStorage.getItem('plc-admin-code'),
   );
+  // Avatar click used to fire `signOut` directly — easy to mis-tap, and
+  // gave the user no path to see their own combined code. Now we open
+  // MyCodeModal instead; the modal contains the sign-out button so the
+  // destructive action moves behind one extra deliberate click.
+  const [showCodeModal, setShowCodeModal] = useState(false);
 
   /** Guest mode: no team context. Hide team-only nav, show join CTA. */
   const guest = !team;
@@ -238,16 +244,22 @@ export function Topbar() {
               bg={dot}
               title={
                 membership
-                  ? `${membership.nickname}${membership.personal_code ? ` · ${membership.personal_code}` : ''} · ${team?.invite_code ?? ''}\n클릭하면 로그아웃`
-                  : ''
+                  ? `${membership.nickname} · ${team?.name ?? ''}\n클릭하면 내 입장 코드 보기 / 로그아웃`
+                  : '내 입장 코드 보기'
               }
-              onClick={signOut}
+              onClick={() => setShowCodeModal(true)}
             >
               {initial}
             </Avatar>
           )}
         </Actions>
       </Inner>
+      {showCodeModal && (
+        <MyCodeModal
+          onClose={() => setShowCodeModal(false)}
+          onSignOut={signOut}
+        />
+      )}
     </Bar>
   );
 }
