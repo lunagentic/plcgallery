@@ -1,6 +1,5 @@
 import styled from '@emotion/styled';
-import { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useEffect, useRef, useState } from 'react';
 import { useIncrementDownloadCount, type PostWithAuthor } from '@/hooks/usePosts';
 import { PdfThumbnail } from '@/components/PdfThumbnail';
 import {
@@ -21,6 +20,28 @@ import { useUIStore } from '@/store/uiStore';
  *  expanded details section so the user can read the full text without
  *  the panel covering more of the image. */
 const PANEL_DESC_TRUNCATE = 150;
+
+/** Mobile breakpoint shared with the rest of the app (Topbar, Stage, etc.).
+ *  Centralized so the hook + media queries can't drift apart. */
+const MOBILE_BREAKPOINT = 700;
+
+/** Reactive boolean for "viewport is phone-sized." Mirrors the existing
+ *  700px media-query convention so CSS branches and React branches agree
+ *  even mid-resize. We register the listener inside an effect so SSR
+ *  doesn't crash on `window`. */
+function useIsMobile() {
+  const [m, setM] = useState(() =>
+    typeof window !== 'undefined' &&
+    window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
+    const fn = (e: MediaQueryListEvent) => setM(e.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
+  return m;
+}
 
 /* ── Heroicons-style 24×24 outline SVGs (Tailwind defaults).
  *    `currentColor` lets them inherit the button's color. */
@@ -77,14 +98,26 @@ const ReplyIcon = () => (
 const CloseIcon = () => (
   <Icon d="M6 18 18 6M6 6l12 12" />
 );
+const HomeIcon = () => (
+  <Icon d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75" />
+);
 
+/**
+ * Outermost viewer shell. The bg prop lets each post override the stage
+ * tint via legacy `stage_bg`; the fallback `#F8D5C4` matches the home
+ * page's warm cream so the viewer reads as a continuation of the
+ * gallery rather than a darkroom modal.
+ *
+ * `overflow: clip` (not hidden) keeps the side panel's `backdrop-filter`
+ * working — `hidden` would create a containing block that breaks the
+ * blur in some engines.
+ */
 const Overlay = styled.div<{ bg: string }>`
   position: fixed;
   inset: 0;
   background: ${({ bg }) => bg};
   z-index: 1000;
-  display: flex;
-  flex-direction: column;
+  overflow: clip;
   animation: fadeInBg 0.3s ease;
   @keyframes fadeInBg {
     from {
@@ -96,12 +129,37 @@ const Overlay = styled.div<{ bg: string }>`
   }
 `;
 
-const TopBar = styled.header`
+/**
+ * Desktop layout grid. One row for the TopBar across the full width,
+ * then a 2-column row: image stage on the left, glass side panel on
+ * the right. Animating `grid-template-columns` collapses the panel
+ * track to 0 when closed — a single transition that replaces the old
+ * 4-point sync (Stage padding-right + CornerNavBtn right + CommentPanel
+ * translateX + PanelCollapseHandle right).
+ *
+ * `minmax(0, 1fr)` on the second row is critical: the default `1fr`
+ * floors at `min-content`, which lets a tall photo push the Stage
+ * past the viewport bottom (PageIndex drifts off-screen, TopBar stays
+ * pinned, the whole composition shifts). minmax(0,...) lets the row
+ * shrink the Stage to its track size — Img's own `max-height`
+ * constraint takes over from there, so big photos render as big as
+ * the lane allows without ever moving the chrome.
+ */
+const DesktopGrid = styled.div<{ panelOpen: boolean }>`
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: 18px 24px 16px;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: 1fr ${({ panelOpen }) => (panelOpen ? '300px' : '0px')};
+  transition: grid-template-columns 0.3s ease;
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr ${({ panelOpen }) => (panelOpen ? '260px' : '0px')};
+  }
+`;
+
+const TopBar = styled.header`
+  grid-column: 1 / -1;
+  padding: 14px 24px 12px;
   display: flex;
   align-items: flex-start;
   gap: 16px;
@@ -110,6 +168,7 @@ const TopBar = styled.header`
   -webkit-backdrop-filter: blur(22px) saturate(140%);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   z-index: 14;
+  color: #1a1714;
   .idx {
     font-variant-numeric: tabular-nums;
     font-size: 12px;
@@ -130,7 +189,7 @@ const HeaderTitle = styled.h1`
   font-family: 'Fraunces', serif;
   font-style: italic;
   font-weight: 500;
-  font-size: clamp(22px, 3.4vw, 34px);
+  font-size: clamp(20px, 2.8vw, 28px);
   line-height: 1.15;
   letter-spacing: -0.015em;
   color: #1a1714;
@@ -154,7 +213,7 @@ const HeaderSubMeta = styled.div`
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    color: rgba(26, 23, 20, 0.78);
+    color: rgba(26, 23, 20, 0.85);
   }
   .team {
     color: rgba(26, 23, 20, 0.6);
@@ -194,28 +253,42 @@ const RoundBtn = styled.button`
   font-size: 16px;
   display: grid;
   place-items: center;
+  border: 0;
+  cursor: pointer;
+  transition: background 0.15s ease;
   &:hover {
     background: rgba(255, 255, 255, 0.95);
   }
 `;
 
-const Stage = styled.div<{ panelOpen: boolean }>`
-  flex: 1;
+/**
+ * Image stage — left grid cell on desktop. Transparent so the parent
+ * Overlay's `stage_bg` tint (warm cream by default) shows through;
+ * the surrounding sidebar supplies the glass treatment on top.
+ *
+ * `padding` only reserves room for the TopBar (top) and the
+ * FullscreenCaptionOverlay (bottom). The corner nav arrows are now
+ * vertically centered, not bottom-anchored, so they don't reserve a
+ * lane.
+ */
+const Stage = styled.div`
+  grid-column: 1;
+  grid-row: 2;
+  position: relative;
   display: grid;
   place-items: center;
-  /* Bottom padding 140px reserves the floating UI lane:
-   *   18px (BottomBar offset) + 50px (BottomBar height) + 12px gap
-   *   + 50px (ThumbStrip height) + 10px breathing room ≈ 140px.
-   *  The MediaCard's caption can never duck under the BottomBar pill
-   *  or behind the ThumbStrip because it stops above this lane. */
-  padding: 88px 60px 140px;
-  padding-right: ${({ panelOpen }) => (panelOpen ? '440px' : '60px')};
-  position: relative;
+  /* Tight padding so the photo gets the lion's share of the lane.
+   *  Bottom reserves just enough room for the PageIndex pill (28px
+   *  tall + 18px offset + small gap = ~52px). */
+  padding: 24px 60px 52px;
   overflow: hidden;
-  transition: padding-right 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
+  /* min-height: 0 + parent's minmax(0,1fr) row are both required to
+   *  keep the Stage pinned to its grid track height. Without this
+   *  combo, a tall photo's intrinsic size pushes the row open and
+   *  PageIndex (anchored to Stage.bottom) ends up off-screen. */
+  min-height: 0;
   @media (max-width: 900px) {
-    padding: 80px 12px 120px;
-    padding-right: ${({ panelOpen }) => (panelOpen ? '100vw' : '12px')};
+    padding: 20px 12px 52px;
   }
 `;
 
@@ -271,10 +344,13 @@ const MediaCard = styled.div`
 
 const Img = styled.img`
   max-width: 100%;
-  /* Reserve space for: TopBar (88) + Stage padding-bottom (140) +
-   *  caption (~80) so MediaCard's caption ends safely above the
-   *  floating BottomBar / ThumbStrip lane. */
-  max-height: calc(100vh - 308px);
+  /* Cap the photo so it fills the Stage lane without ever overflowing
+   *  it. TopBar (~85) + Stage padding (24 top + 52 bottom) ≈ 161;
+   *  100vh - 165 gives the image the largest box that's still
+   *  comfortably above the PageIndex pill — wide / tall / square
+   *  aspect ratios all letterbox inside this same fixed envelope so
+   *  the surrounding chrome never shifts. */
+  max-height: calc(100vh - 165px);
   object-fit: contain;
   display: block;
 `;
@@ -314,8 +390,9 @@ const ImagePressable = styled.button`
 
 /** Full-screen lightbox overlay rendered on top of the viewer when the
  *  user clicks the photo. Animates a soft fade + scale-in (Behance vibe),
- *  shows the image at near-full viewport size against a near-black
- *  backdrop, and dismisses on click / Esc. */
+ *  shows the image at near-full viewport size. Cream backdrop matches
+ *  the rest of the viewer so the zoom feels like the same page just
+ *  bigger, not a separate darkroom modal. */
 const ZoomOverlay = styled.div`
   position: fixed;
   inset: 0;
@@ -323,7 +400,7 @@ const ZoomOverlay = styled.div`
   display: grid;
   place-items: center;
   cursor: zoom-out;
-  background: rgba(8, 6, 4, 0.92);
+  background: rgba(248, 213, 196, 0.96);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   animation: zoomBgIn 220ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -376,8 +453,8 @@ const ZoomedImg = styled.img`
 `;
 
 /** Edge nav arrows inside the lightbox so users can click through
- *  posts without leaving the zoomed view. Same shape as the regular
- *  NavBtn but tuned for the dark backdrop. */
+ *  posts without leaving the zoomed view. Light glass pills matching
+ *  the rest of the viewer chrome — dark icon on translucent white. */
 const ZoomNavBtn = styled.button<{ dir: 'left' | 'right' }>`
   position: fixed;
   top: 50%;
@@ -387,18 +464,20 @@ const ZoomNavBtn = styled.button<{ dir: 'left' | 'right' }>`
   height: 48px;
   border-radius: 999px;
   border: 0;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  color: rgba(255, 255, 255, 0.95);
+  color: #1a1714;
   font-size: 18px;
+  font-weight: 700;
   display: grid;
   place-items: center;
   z-index: 102;
   cursor: pointer;
+  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.2);
   transition: background 0.18s ease, transform 0.18s ease;
   &:hover {
-    background: rgba(255, 255, 255, 0.24);
+    background: #fff;
     transform: translateY(-50%) scale(1.05);
   }
   @media (max-width: 700px) {
@@ -418,9 +497,9 @@ const ZoomHint = styled.div<{ visible: boolean }>`
   z-index: 101;
   padding: 6px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(8px);
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(26, 23, 20, 0.7);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -436,7 +515,7 @@ const ZoomHint = styled.div<{ visible: boolean }>`
  *  in lockstep with <Img> so the layout stays consistent. */
 const PdfFrame = styled.iframe`
   width: min(1100px, 94vw);
-  height: calc(100vh - 308px);
+  height: calc(100vh - 165px);
   border: 0;
   background: #fff;
   display: block;
@@ -460,190 +539,28 @@ const InlineMoreBtn = styled.button`
   }
 `;
 
+
 /**
- * Caption strip rendered immediately below the photo. Replaces the old
- * hover-only InfoPanel with a permanently visible preview that doesn't
- * cover the image. Click anywhere on the strip to open the right
- * sidebar with the full content + comments.
+ * Behance-style vertical-center nav arrow. Pinned to the Overlay
+ * (full viewport) — NOT the Stage — so the on-screen position is
+ * deterministic regardless of:
+ *   • the current post's photo aspect ratio (MediaCard recenters
+ *     visually per photo, but Stage extents stay the same — anchoring
+ *     to Overlay removes even any layout-induced repaint variance)
+ *   • the side panel's open / closed state (the right arrow shifts
+ *     left by 300px when the panel slides in, smoothly transitioned).
+ *
+ * Light-on-cream palette matches the page background — the dark
+ * variant clashed with the warm stage tone.
  */
-const CaptionStrip = styled.button`
-  /* Spans the full width of MediaCard so the bottom strip flows edge-
-   *  to-edge with the image card above. Min-width: 0 lets long Korean
-   *  text use the card's full width when wrapping instead of dictating
-   *  an outer min-content. */
-  align-self: stretch;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 14px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  text-align: left;
-  border: 0;
-  /* Translucent dark glass with a gentle top→bottom alpha lift. Both
-   *  stops keep at least some opacity so the photo's bottom pixels
-   *  don't bleed through (which used to swing the caption colour from
-   *  post to post), while the lighter top reads as a natural glass
-   *  fade rather than a flat slab. */
-  background: linear-gradient(
-    to bottom,
-    rgba(12, 10, 8, 0.34) 0%,
-    rgba(12, 10, 8, 0.52) 100%
-  );
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  color: rgba(255, 255, 255, 0.92);
-  cursor: pointer;
-  transition: background 0.18s ease, transform 0.18s ease, opacity 0.2s ease;
-  &:hover {
-    background: linear-gradient(
-      to bottom,
-      rgba(12, 10, 8, 0.46) 0%,
-      rgba(12, 10, 8, 0.62) 100%
-    );
-  }
-  &:active {
-    transform: scale(0.995);
-  }
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .tag {
-    font-size: 11px;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.92);
-    background: rgba(255, 174, 92, 0.18);
-    border: 1px solid rgba(255, 174, 92, 0.32);
-    padding: 3px 9px;
-    border-radius: 999px;
-  }
-  .desc {
-    font-size: 13px;
-    line-height: 1.55;
-    color: rgba(255, 255, 255, 0.88);
-    /* overflow-wrap anywhere keeps the description's min-content
-     *  narrow so a long Korean run can't push MediaCard wider than the
-     *  image — caption width then always matches the photo. */
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    /* Preserve the author's spacing and line breaks. Without this the
-     *  browser collapses repeated spaces and folds \n into a single
-     *  space, so paragraph breaks vanish from the preview. */
-    white-space: pre-wrap;
-    margin: 0;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    min-width: 0;
-  }
-  .tip {
-    font-size: 11px;
-    line-height: 1.45;
-    color: rgba(255, 220, 180, 0.95);
-    background: rgba(255, 174, 92, 0.18);
-    border-left: 2px solid rgba(255, 174, 92, 0.65);
-    padding: 6px 8px;
-    border-radius: 0 6px 6px 0;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    white-space: pre-wrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    min-width: 0;
-  }
-  .footer {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 4px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: rgba(255, 255, 255, 0.55);
-  }
-  @media (max-width: 700px) {
-    padding: 10px 14px;
-    gap: 6px;
-    .desc { font-size: 12px; }
-    .tag { font-size: 10px; padding: 2px 7px; }
-  }
-`;
-
-const LikeBtn = styled.button<{ liked: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: transparent;
-  border: 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: ${({ liked }) => (liked ? '#E2725B' : '#1a1714')};
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.18s cubic-bezier(0.2, 0.85, 0.25, 1);
-  &:hover {
-    background: rgba(0, 0, 0, 0.06);
-  }
-  &:active {
-    transform: scale(0.92);
-  }
-`;
-
-const CopyBtn = styled.button`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: transparent;
-  border: 0;
-  font-size: 12px;
-  font-weight: 700;
-  color: #1a1714;
-  cursor: pointer;
-  &:hover {
-    background: rgba(0, 0, 0, 0.06);
-  }
-`;
-
-const DeleteBtn = styled.button`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(220, 38, 38, 0.12);
-  border: 1px solid rgba(220, 38, 38, 0.32);
-  font-size: 12px;
-  font-weight: 700;
-  color: #b91c1c;
-  cursor: pointer;
-  &:hover {
-    background: rgba(220, 38, 38, 0.22);
-    border-color: rgba(220, 38, 38, 0.55);
-  }
-`;
-
-/** Behance-style nav arrow pinned to the bottom-left / bottom-right
- *  corner of the viewer. Sits at the viewport edge (anchored on the
- *  fixed Overlay) so the photo never has to share centre space with
- *  navigation chrome — clear "go to the previous / next project"
- *  affordance. Right arrow shifts with the comment sidebar. */
 const CornerNavBtn = styled.button<{ dir: 'left' | 'right'; panelOpen: boolean }>`
   position: absolute;
-  bottom: 24px;
+  top: 50%;
+  transform: translateY(-50%);
   ${({ dir, panelOpen }) =>
     dir === 'left'
       ? 'left: 24px;'
-      : `right: ${panelOpen ? '404px' : '24px'};`}
+      : `right: ${panelOpen ? '324px' : '24px'};`}
   width: 48px;
   height: 48px;
   border-radius: 999px;
@@ -663,7 +580,7 @@ const CornerNavBtn = styled.button<{ dir: 'left' | 'right'; panelOpen: boolean }
     transform 0.15s ease;
   &:hover:not(:disabled) {
     background: #fff;
-    transform: scale(1.05);
+    transform: translateY(-50%) scale(1.05);
   }
   &:disabled {
     opacity: 0.35;
@@ -672,67 +589,22 @@ const CornerNavBtn = styled.button<{ dir: 'left' | 'right'; panelOpen: boolean }
   @media (max-width: 900px) {
     width: 40px;
     height: 40px;
-    bottom: 18px;
-    ${({ dir }) => (dir === 'left' ? 'left: 12px;' : 'right: 12px;')}
-  }
-  @media (max-width: 700px) {
-    /* Sidebar covers the viewport on mobile when open — hide the
-     *  edge arrows to avoid colliding with sidebar content. */
-    display: ${({ panelOpen }) => (panelOpen ? 'none' : 'grid')};
+    ${({ dir, panelOpen }) =>
+      dir === 'left'
+        ? 'left: 12px;'
+        : `right: ${panelOpen ? '272px' : '12px'};`}
   }
 `;
 
-const Hint = styled.div`
-  position: absolute;
-  bottom: 18px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 11px;
-  color: rgba(26, 23, 20, 0.45);
-  letter-spacing: 0.05em;
-  z-index: 10;
-  @media (max-width: 700px) {
-    display: none;
-  }
-`;
-
-const BottomBar = styled.div<{ panelOpen: boolean }>`
-  position: absolute;
-  bottom: 18px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 13;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.18);
-  flex-wrap: wrap;
-  justify-content: center;
-  max-width: calc(100vw - 32px);
-  @media (max-width: 900px) {
-    bottom: 12px;
-  }
-  @media (max-width: 700px) {
-    /* Sidebar covers the viewport on mobile — hide the bar so it
-     *  doesn't compete with sidebar content. */
-    display: ${({ panelOpen }) => (panelOpen ? 'none' : 'inline-flex')};
-  }
-`;
-
-/** Multi-image bundle thumb pill — floats above the BottomBar at the
- *  bottom-centre of the viewer. Anchored to Overlay so it tracks the
- *  same coordinate space as the BottomBar and doesn't get pushed off-
- *  screen by the MediaCard's vertical envelope. */
+/**
+ * Multi-image thumb pill — anchored to the Stage so it tracks the
+ * image's coordinate space. Floats just above the FullscreenCaptionOverlay
+ * lane. Hidden on mobile (the mobile shell renders an in-flow strip
+ * inside MobileImageRegion instead, so it never overlaps the action bar).
+ */
 const ThumbStrip = styled.div`
   position: absolute;
-  /* Sits ~12px above BottomBar (bottom: 18px + ~50px BottomBar height
-   *  + 12px breathing room ≈ 80px). */
-  bottom: 80px;
+  bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 12;
@@ -747,109 +619,35 @@ const ThumbStrip = styled.div`
   max-width: calc(100vw - 64px);
   overflow-x: auto;
   &::-webkit-scrollbar { display: none; }
-  @media (max-width: 900px) {
-    bottom: 64px;
-  }
 `;
 
-/** Inline comment toggle: lives inside the BottomBar next to the like button. */
-const CommentBtn = styled.button<{ active: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: ${({ active }) => (active ? 'rgba(0, 0, 0, 0.08)' : 'transparent')};
-  border: 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: #1a1714;
-  cursor: pointer;
-  font-variant-numeric: tabular-nums;
-  transition: background 0.15s ease, transform 0.18s cubic-bezier(0.2, 0.85, 0.25, 1);
-  &:hover {
-    background: rgba(0, 0, 0, 0.06);
-  }
-  &:active {
-    transform: scale(0.92);
-  }
-`;
-
-const CommentPanel = styled.aside<{ open: boolean }>`
-  position: absolute;
-  /* Anchor below the TopBar so the title / author / index stay visible
-   *  while the panel is open. The TopBar's height is ~76px for a single-
-   *  line title; we round up a little so two-line titles don't peek
-   *  underneath. The panel still extends to the bottom of the viewport. */
-  top: 88px;
-  right: 0;
-  bottom: 0;
-  width: 380px;
-  max-width: 100vw;
-  /* TopBar is z-index 14 — keep the panel below it so it can never cover
-   *  the header even on narrow screens. */
-  z-index: 13;
+/**
+ * Glass side panel — now a regular grid cell. The DesktopGrid parent
+ * animates its column from 300px↔0; this panel just overflow-clips its
+ * own contents so the inner sections (details, comments) crisply slide
+ * in/out without `transform` tricks.
+ *
+ * `overflow: clip` (not hidden) on the panel preserves the
+ * `backdrop-filter` blur — `hidden` creates a containing block that
+ * disables blur in WebKit.
+ */
+const CommentPanel = styled.aside`
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  /* Glass-overlay style — matches the on-image InfoPanel "투명창" so the
-   *  whole sidebar reads as one transparent surface that floats above the
-   *  artwork. */
   background: linear-gradient(
     to bottom,
-    rgba(12, 10, 8, 0.72) 0%,
-    rgba(12, 10, 8, 0.62) 100%
+    rgba(30, 26, 22, 0.65) 0%,
+    rgba(30, 26, 22, 0.55) 100%
   );
   backdrop-filter: blur(22px) saturate(140%);
   -webkit-backdrop-filter: blur(22px) saturate(140%);
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: -10px 0 28px -16px rgba(0, 0, 0, 0.4);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.92);
-  transform: translateX(${({ open }) => (open ? '0' : '105%')});
-  transition: transform 280ms cubic-bezier(0.2, 0.85, 0.25, 1);
-  @media (max-width: 900px) {
-    top: 96px;
-  }
-  @media (max-width: 700px) {
-    width: 100vw;
-  }
-`;
-
-/** Floating chevron handle anchored to the left edge of the comment
- *  panel. Toggles the entire panel open/closed. Stays visible when the
- *  panel is closed (sticks to the right viewport edge) so users always
- *  have a panel-level reopen affordance without going back to the
- *  bottom-bar comment button. */
-const PanelCollapseHandle = styled.button<{ open: boolean }>`
-  position: fixed;
-  /* Top-right anchor: tucked just below the TopBar (~88px) so the
-   *  handle reads as a drawer-toggle for the right sidebar without
-   *  competing with NavBtn (centered) or BottomBar (bottom). */
-  top: 110px;
-  right: ${({ open }) => (open ? '380px' : '0')};
-  z-index: 15;
-  width: 26px;
-  height: 56px;
-  border: 0;
-  border-top-left-radius: 10px;
-  border-bottom-left-radius: 10px;
-  background: rgba(12, 10, 8, 0.62);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  box-shadow: -6px 0 16px -8px rgba(0, 0, 0, 0.35);
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 12px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  transition:
-    right 280ms cubic-bezier(0.2, 0.85, 0.25, 1),
-    background 0.15s ease;
-  &:hover {
-    background: rgba(12, 10, 8, 0.82);
-  }
-  @media (max-width: 700px) {
-    right: ${({ open }) => (open ? 'calc(100vw - 12px)' : '0')};
-  }
+  overflow: clip;
 `;
 
 /** Sidebar toggle for the details panel. Pinned at the top of the
@@ -1120,23 +918,6 @@ const CommentCompose = styled.form`
   }
 `;
 
-const EditBtn = styled.button`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: transparent;
-  border: 0;
-  font-size: 12px;
-  font-weight: 700;
-  color: #1a1714;
-  cursor: pointer;
-  &:hover {
-    background: rgba(0, 0, 0, 0.06);
-  }
-`;
-
 const EditBackdrop = styled.div`
   position: fixed;
   inset: 0;
@@ -1247,6 +1028,314 @@ const Thumb = styled.button<{ active: boolean }>`
 `;
 
 
+/* ── New components introduced for the dark/glass redesign ─────────── */
+
+/** Pill badge anchored to the bottom-center of the Stage showing
+ *  `current / total` post position. Tucked just above the bottom edge
+ *  so it doesn't fight with the photo. */
+const PageIndex = styled.div`
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: rgba(26, 23, 20, 0.55);
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  z-index: 12;
+  pointer-events: none;
+`;
+
+/**
+ * Vertical tab handle that sticks out from the side panel's left edge.
+ * Reads as a drawer pull — half-attached to the panel, half-protruding
+ * into the stage — so it never gets mistaken for a play button (the
+ * old centered round-pill design did). Slides with the panel: when the
+ * panel collapses the handle rides to the viewport's right edge so it
+ * stays reachable as a re-open affordance.
+ *
+ * Wider + bigger when the panel is closed so the "click here to open"
+ * affordance is unmistakable (it's the only entry point back to the
+ * comments/details when the panel is hidden).
+ */
+const PanelToggleButton = styled.button<{ panelOpen: boolean }>`
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  right: ${({ panelOpen }) => (panelOpen ? '300px' : '0px')};
+  width: ${({ panelOpen }) => (panelOpen ? '22px' : '28px')};
+  height: ${({ panelOpen }) => (panelOpen ? '64px' : '80px')};
+  border: 0;
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+  background: rgba(30, 26, 22, ${({ panelOpen }) => (panelOpen ? '0.62' : '0.78')});
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: -8px 0 20px -8px rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: ${({ panelOpen }) => (panelOpen ? '11px' : '14px')};
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 15;
+  transition:
+    right 280ms cubic-bezier(0.2, 0.85, 0.25, 1),
+    width 200ms ease,
+    height 200ms ease,
+    background 0.18s ease;
+  &:hover {
+    background: rgba(30, 26, 22, 0.92);
+  }
+  @media (max-width: 900px) {
+    right: ${({ panelOpen }) => (panelOpen ? '260px' : '0px')};
+  }
+`;
+
+/**
+ * Full-screen mode bottom overlay. Mounts only when the side panel is
+ * closed on desktop — gives the user a glance-able caption + action
+ * buttons without ever having to leave the immersive image-first view.
+ * Gradient fades into transparency at the top so the photo's bottom
+ * pixels stay visible behind the overlay.
+ */
+const FullscreenCaptionOverlay = styled.div`
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 12;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 48px 24px 18px;
+  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.6));
+  color: rgba(255, 255, 255, 0.92);
+  pointer-events: none;
+  /* The title/author bubble doubles as a panel-toggle hotspot: clicking
+   *  it slides the side panel open so users can dive straight into the
+   *  full caption + comments without hunting for the corner toggle. */
+  .meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    pointer-events: auto;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    padding: 4px 0;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    transition: opacity 0.15s ease;
+  }
+  .meta:hover { opacity: 0.85; }
+  .meta:active { opacity: 0.7; }
+  .meta-title { font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.96); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta-author { font-size: 11px; color: rgba(255, 255, 255, 0.6); }
+  .actions { display: inline-flex; gap: 8px; pointer-events: auto; flex-shrink: 0; }
+`;
+
+/** Compact, glass-on-dark pill used inside the FullscreenCaptionOverlay
+ *  for like / comment / download. Mirrors the spec's "반투명 pill, each
+ *  44×44 touch area" requirement. */
+const OverlayActionBtn = styled.button<{ active?: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 0;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: ${({ active }) => (active ? '#ffb7a4' : 'rgba(255, 255, 255, 0.92)')};
+  background: ${({ active }) => (active ? 'rgba(226, 114, 91, 0.22)' : 'rgba(255, 255, 255, 0.14)')};
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.18s cubic-bezier(0.2, 0.85, 0.25, 1);
+  &:hover { background: rgba(255, 255, 255, 0.24); }
+  &:active { transform: scale(0.94); }
+`;
+
+/* ── Mobile layout (≤700px) ────────────────────────────────────────── */
+
+const MobileShell = styled.div`
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+`;
+
+const MobileTopBar = styled.header`
+  flex-shrink: 0;
+  height: calc(44px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 8px;
+  padding-right: 8px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  color: #1a1714;
+  z-index: 20;
+`;
+
+const MobileIconBtn = styled.button`
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  color: #1a1714;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 10px;
+  border-radius: 8px;
+  &:hover { background: rgba(0, 0, 0, 0.06); }
+`;
+
+const MobileImageRegion = styled.div`
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: hidden;
+  touch-action: pan-y;
+  & > img,
+  & > iframe {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
+    border-radius: 12px;
+    box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.25);
+  }
+  & > iframe { background: #fff; width: 100%; height: 100%; border: 0; }
+`;
+
+const MobileThumbStrip = styled.div`
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 6px;
+  padding: 6px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.15);
+  max-width: 100%;
+  overflow-x: auto;
+  &::-webkit-scrollbar { display: none; }
+`;
+
+const MobileActionBar = styled.div`
+  flex-shrink: 0;
+  height: calc(44px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding-left: 4px;
+  padding-right: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  z-index: 20;
+  .group { display: inline-flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
+  .idx { font-size: 11px; font-variant-numeric: tabular-nums; color: rgba(26, 23, 20, 0.6); flex-shrink: 0; }
+`;
+
+const MobileActionBtn = styled.button<{ active?: boolean }>`
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  color: ${({ active }) => (active ? '#E2725B' : '#1a1714')};
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 0 6px;
+  &:hover { background: rgba(0, 0, 0, 0.06); }
+  &:active { transform: scale(0.94); }
+`;
+
+const MobileSheetBackdrop = styled.div`
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 30;
+  animation: sheetBgIn 0.2s ease;
+  @keyframes sheetBgIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+`;
+
+const MobileSheet = styled.div`
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 31;
+  max-height: 70vh;
+  background: rgba(20, 17, 14, 0.92);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  color: rgba(255, 255, 255, 0.92);
+  animation: sheetSlideUp 0.3s ease;
+  @keyframes sheetSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+`;
+
+const MobileSheetHandle = styled.div`
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.3);
+  margin: 8px auto 4px;
+  flex-shrink: 0;
+`;
+
 interface ViewerProps {
   posts: PostWithAuthor[];
   index: number;
@@ -1285,14 +1374,18 @@ export function Viewer({
   currentUserId,
   isAdmin,
 }: ViewerProps) {
-  const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [imgIdx, setImgIdx] = useState(0);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editTags, setEditTags] = useState('');
   const [editSaving, setEditSaving] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  // Desktop side panel — opens by default so the viewer reads as a
+  // post-with-comments view on first mount (mirrors Behance's project
+  // pane). On mobile we use a separate `sheetOpen` state instead.
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [sheetOpen, setSheetOpen] = useState(false);
   // Whether the sidebar's details section shows the full description.
   // Default true (full view). When false, descriptions over 150 chars
   // truncate with an inline 더보기 button; tip + tags stay visible.
@@ -1309,8 +1402,17 @@ export function Viewer({
   const [replyTo, setReplyTo] = useState<{ id: string; nickname: string | null } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
+  // Swipe state for mobile gesture nav. Refs (not state) — we mutate
+  // them on every touch event and don't need re-renders.
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
   const showToast = useUIStore((s) => s.showToast);
   const post = posts[index];
+
+  // "Comments / panel content is visible" — used to gate the comments
+  // data fetch so we don't pull threads until the user actually opens
+  // the panel (desktop) or sheet (mobile).
+  const commentsOpen = isMobile ? sheetOpen : panelOpen;
 
   const { data: threads = [] } = usePostComments(commentsOpen ? post?.id : undefined);
   const { data: likedCommentIds } = useMyLikedCommentIds(
@@ -1335,6 +1437,13 @@ export function Viewer({
     // arrow / click through posts while staying in the lightbox view.
   }, [index]);
 
+  // Resize boundary cleanup: when the viewport crosses into desktop
+  // territory, dismiss the mobile sheet so it can't be left half-open
+  // off-screen. The desktop side panel persists across crossings.
+  useEffect(() => {
+    if (!isMobile && sheetOpen) setSheetOpen(false);
+  }, [isMobile, sheetOpen]);
+
   // Show the lightbox hint pill for 3s every time the user opens the
   // zoom OR moves to a new photo while zoomed, then auto-fade it.
   useEffect(() => {
@@ -1354,7 +1463,10 @@ export function Viewer({
       lines.push('', post.tags.map((tag) => `#${tag}`).join(' '));
     }
     const ok = await copyToClipboard(lines.join('\n'));
-    showToast(ok ? t('toast.copied') : t('toast.copyFail'), ok ? 'success' : 'error');
+    showToast(
+      ok ? '텍스트가 복사되었습니다' : '복사에 실패했어요',
+      ok ? 'success' : 'error',
+    );
   };
 
   useEffect(() => {
@@ -1399,7 +1511,6 @@ export function Viewer({
 
   if (!post) return null;
 
-  const stageBg = post.stage_bg ?? '#F8D5C4';
   // Transparent panel holds tags + tip + description (the long-form body).
   // Title/author/team stay in the solid TopBar for instant glance.
   const hasBody =
@@ -1423,6 +1534,59 @@ export function Viewer({
   const currentImageUrl = imageBundle[safeIdx] ?? '';
   const currentIsPdf = /\.pdf(?:[?#]|$)/i.test(currentImageUrl);
 
+  /*
+   * Preload the neighboring posts' first images so navigation feels
+   * instant. The Supabase storage CDN already sets `max-age=3600`
+   * which keeps the browser cache warm once an image has been fetched
+   * once — preloading just makes that first-fetch happen while the
+   * user is still looking at the current photo instead of after they
+   * click the arrow.
+   *
+   * We only preload one frame deep (n-1 and n+1) — going further is
+   * usually wasted bandwidth because most viewers don't paginate
+   * past 1-2 posts before leaving the viewer.
+   */
+  useEffect(() => {
+    const preloadFirstImage = (i: number) => {
+      const p = posts[i];
+      if (!p) return;
+      const path =
+        p.image_paths && p.image_paths.length > 0
+          ? p.image_paths[0]
+          : p.image_path;
+      if (!path) return;
+      // Skip PDFs — they render via an iframe, not <img>, so an
+      // Image() prefetch would waste bandwidth that the iframe won't
+      // reuse anyway.
+      if (/\.pdf(?:[?#]|$)/i.test(path)) return;
+      const url = getPublicImageUrl(path);
+      if (!url) return;
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    };
+    preloadFirstImage(index - 1);
+    preloadFirstImage(index + 1);
+    // Also warm up the rest of the current post's bundle so flipping
+    // through multi-image posts via the thumb strip is instant.
+    for (let i = 1; i < imageBundle.length; i++) {
+      const url = imageBundle[i];
+      if (!url) continue;
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    }
+    // `imageBundle` is a fresh array each render but the URLs inside
+    // are stable for a given post — depend on `index` + posts ref so
+    // the effect only re-runs on actual post navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, posts]);
+
+  // Per-post stage tint (legacy `stage_bg`) — falls back to the warm
+  // cream that matches the home page so the viewer reads as part of
+  // the gallery rather than a darkroom modal.
+  const stageBg = post.stage_bg ?? '#F8D5C4';
+
   const initial = (post.author_nickname ?? post.title ?? '?').charAt(0).toUpperCase();
   const isLiked = !!likedPostIds?.has(post.id);
 
@@ -1438,6 +1602,23 @@ export function Viewer({
   const canEditPost =
     !!currentUserId && (post.author_id === currentUserId || !!isAdmin);
   const canDeletePost = canEditPost;
+
+  /**
+   * Single entry point for the heart button — guards against the
+   * unauthenticated case (browse mode) before kicking off the toggle
+   * mutation. Without this guard, the parent's `toggleLike.mutate(...)`
+   * fires straight into a 401 RPC, the optimistic update flips and
+   * snaps back, and the user perceives the button as "broken with no
+   * feedback". Show the same toast we use for comment likes so the
+   * affordance is consistent across post-like and comment-like.
+   */
+  const handleTogglePostLike = () => {
+    if (!currentUserId) {
+      showToast('좋아요는 로그인 후에 가능해요', 'error');
+      return;
+    }
+    onToggleLike(post.id);
+  };
 
   const downloadCurrentImage = async () => {
     if (!currentImageUrl) return;
@@ -1467,200 +1648,630 @@ export function Viewer({
     }
   };
 
-  return (
-    <Overlay role="dialog" aria-modal bg={stageBg}>
-      <TopBar>
-        <HeaderColumn>
-          <HeaderTitle>{post.title}</HeaderTitle>
-          <HeaderSubMeta>
-            {post.team_name && <span className="team">{post.team_name}</span>}
-            {post.team_name && <span className="sep">·</span>}
-            <span className="author">
-              <MiniAvatar>{initial}</MiniAvatar>
-              {post.author_nickname ?? '작가 미상'}
-            </span>
-          </HeaderSubMeta>
-        </HeaderColumn>
-        <HeaderTopRight>
-          <span className="idx">
-            {index + 1} / {posts.length}
-          </span>
-          <RoundBtn onClick={onClose} aria-label="Close">
-            <CloseIcon />
-          </RoundBtn>
-        </HeaderTopRight>
-      </TopBar>
+  /* ── Touch handlers for mobile swipe nav ───────────────────────── */
+  const SWIPE_THRESHOLD = 50;
+  const VERTICAL_CANCEL = 40;
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current == null || touchStartY.current == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    touchStartX.current = null;
+    touchStartY.current = null;
+    // Cancel if the gesture is more vertical than horizontal — keeps
+    // scroll/zoom intent from being hijacked as a page swipe.
+    if (Math.abs(dy) > VERTICAL_CANCEL && Math.abs(dy) > Math.abs(dx)) return;
+    if (dx > SWIPE_THRESHOLD && index > 0) onIndexChange(index - 1);
+    else if (dx < -SWIPE_THRESHOLD && index < posts.length - 1) onIndexChange(index + 1);
+  };
 
-      <Stage panelOpen={commentsOpen}>
-        <ImageColumn>
-        <MediaCard>
-          {currentIsPdf ? (
-            <PdfFrame
-              src={currentImageUrl}
-              title={post.title}
-              // Sandboxing the PDF viewer is overkill — PDFs are rendered by the
-              // browser's native plugin in a same-origin iframe. We intentionally
-              // do NOT pass `sandbox` so the toolbar (zoom, page nav) works.
-            />
-          ) : (
-            <ImagePressable
-              type="button"
-              onClick={() => setImageZoomed(true)}
-              aria-label="이미지 크게 보기"
-              title="크게 보기"
-            >
-              <Img src={currentImageUrl} alt={post.title} />
-            </ImagePressable>
+  /* ── Shared rendering pieces used by both layouts ──────────────── */
+
+  // The image (or PDF iframe) for the current post, rendered identically
+  // in desktop MediaCard and the mobile image region. Click toggles the
+  // zoom lightbox; PDFs use the native browser viewer.
+  // The image (or PDF iframe) for the current post. Loading hints
+  // (`eager` + `fetchpriority="high"` + `decoding="async"`) tell the
+  // browser this is the focal image of the page so it gets prioritized
+  // over the background-prefetched neighbor posts.
+  const renderedMedia = currentIsPdf ? (
+    <PdfFrame src={currentImageUrl} title={post.title} />
+  ) : (
+    <ImagePressable
+      type="button"
+      onClick={() => setImageZoomed(true)}
+      aria-label="이미지 크게 보기"
+      title="크게 보기"
+    >
+      <Img
+        src={currentImageUrl}
+        alt={post.title}
+        loading="eager"
+        decoding="async"
+        // @ts-expect-error — fetchPriority is valid HTML but missing from React's type defs in this version
+        fetchpriority="high"
+      />
+    </ImagePressable>
+  );
+
+  const renderedMobileMedia = currentIsPdf ? (
+    <iframe src={currentImageUrl} title={post.title} />
+  ) : (
+    <img
+      src={currentImageUrl}
+      alt={post.title}
+      loading="eager"
+      decoding="async"
+      // @ts-expect-error — see note on the desktop variant above
+      fetchpriority="high"
+      onClick={() => setImageZoomed(true)}
+      style={{ cursor: 'zoom-in' }}
+    />
+  );
+
+  // Thumb strip is shared but the *positioning* differs per layout
+  // (absolute on desktop, in-flow on mobile). We only render the
+  // <Thumb> children here; the container wrapper is layout-specific.
+  // `loading="eager"` because these tiny strips ride right beneath
+  // the main photo — lazy would defer them past the user's expected
+  // click target.
+  const thumbChildren = imageBundle.length > 1 && imageBundle.map((url, i) => {
+    const isPdf = /\.pdf(?:[?#]|$)/i.test(url);
+    const thumbUrl = isPdf ? url.replace(/\.pdf(?=[?#]|$)/i, '.pdf.thumb.jpg') : url;
+    return (
+      <Thumb
+        key={url + i}
+        active={i === imgIdx}
+        onClick={() => setImgIdx(i)}
+        type="button"
+        aria-label={isPdf ? `PDF ${i + 1}` : `이미지 ${i + 1}`}
+      >
+        {isPdf ? (
+          <PdfThumbnail thumbUrl={thumbUrl === url ? null : thumbUrl} size="sm" />
+        ) : (
+          <img src={url} alt="" loading="eager" decoding="async" />
+        )}
+      </Thumb>
+    );
+  });
+
+  // Side-panel / bottom-sheet content. Same JSX for both layouts so
+  // the comment-thread state, reply form, and edit form all live in
+  // one place. Inlined (not extracted) because it closes over ~15
+  // variables/handlers — pulling it out would require a 15-prop
+  // component signature that's harder to read than this in-place body.
+  const panelContent = (
+    <>
+      {hasBody && post.description && post.description.length > PANEL_DESC_TRUNCATE && (
+        <DetailsToggle
+          type="button"
+          onClick={() => setDetailsExpanded((v) => !v)}
+          aria-expanded={detailsExpanded}
+          aria-controls="viewer-details-panel"
+          aria-label={detailsExpanded ? '내용 접기' : '내용 펼치기'}
+          title={detailsExpanded ? '내용 접기' : '내용 펼치기'}
+        >
+          {detailsExpanded ? '▴' : '▾'}
+        </DetailsToggle>
+      )}
+      {hasBody && (
+        <SidebarDetails id="viewer-details-panel" aria-label="게시물 상세 내용">
+          {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
+          {post.description && (
+            detailsExpanded || post.description.length <= PANEL_DESC_TRUNCATE ? (
+              <p className="desc">{post.description}</p>
+            ) : (
+              <p className="desc">
+                {post.description.slice(0, PANEL_DESC_TRUNCATE).trimEnd()}…{' '}
+                <InlineMoreBtn type="button" onClick={() => setDetailsExpanded(true)}>
+                  더보기
+                </InlineMoreBtn>
+              </p>
+            )
           )}
-
-          {/* Caption strip sits flush against the image's bottom edge —
-           *  same MediaCard, so they read as one continuous Instagram-
-           *  style media card. Hidden while the sidebar is open since
-           *  SidebarDetails carries the same payload. */}
-          {hasBody && !commentsOpen && (
-            <CaptionStrip
-              type="button"
-              onClick={() => {
-                setDetailsExpanded(true);
-                setCommentsOpen(true);
-              }}
-              aria-label="내용 자세히 보기"
-              title="내용 자세히 보기"
-            >
-              {post.tags && post.tags.length > 0 && (
-                <div className="tags">
-                  {post.tags.slice(0, 6).map((tag) => (
-                    <span key={tag} className="tag">#{tag}</span>
-                  ))}
-                </div>
-              )}
-              {post.description && <p className="desc">{post.description}</p>}
-              {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
-              <div className="footer">자세히 →</div>
-            </CaptionStrip>
+          {post.tags && post.tags.length > 0 && (
+            <div className="tags">
+              {post.tags.map((tag) => (
+                <span key={tag} className="tag">#{tag}</span>
+              ))}
+            </div>
           )}
-        </MediaCard>
-        </ImageColumn>
-      </Stage>
-
-      {imageBundle.length > 1 && (
-        <ThumbStrip>
-          {imageBundle.map((url, i) => {
-            const isPdf = /\.pdf(?:[?#]|$)/i.test(url);
-            const thumbUrl = isPdf
-              ? url.replace(/\.pdf(?=[?#]|$)/i, '.pdf.thumb.jpg')
-              : url;
-            return (
-              <Thumb
-                key={url + i}
-                active={i === imgIdx}
-                onClick={() => setImgIdx(i)}
-                type="button"
-                aria-label={isPdf ? `PDF ${i + 1}` : `이미지 ${i + 1}`}
-              >
-                {isPdf ? (
-                  <PdfThumbnail
-                    thumbUrl={thumbUrl === url ? null : thumbUrl}
-                    size="sm"
-                  />
-                ) : (
-                  <img src={url} alt="" />
-                )}
-              </Thumb>
-            );
-          })}
-        </ThumbStrip>
+        </SidebarDetails>
       )}
 
-      <CornerNavBtn
-        type="button"
-        dir="left"
-        panelOpen={commentsOpen}
-        onClick={() => index > 0 && onIndexChange(index - 1)}
-        disabled={index === 0}
-        aria-label="이전 게시물"
-        title="이전 게시물"
-      >
-        ←
-      </CornerNavBtn>
-      <CornerNavBtn
-        type="button"
-        dir="right"
-        panelOpen={commentsOpen}
-        onClick={() => index < posts.length - 1 && onIndexChange(index + 1)}
-        disabled={index === posts.length - 1}
-        aria-label="다음 게시물"
-        title="다음 게시물"
-      >
-        →
-      </CornerNavBtn>
+      <CommentHeader>
+        <h2>
+          댓글<span className="count">{totalComments}</span>
+        </h2>
+      </CommentHeader>
 
-      <Hint>{t('viewer.hint')}</Hint>
-
-      <BottomBar panelOpen={commentsOpen}>
-        <LikeBtn
-          liked={isLiked}
-          onClick={() => onToggleLike(post.id)}
-          title={isLiked ? '좋아요 취소' : '좋아요'}
-          aria-pressed={isLiked}
-        >
-          {isLiked ? <HeartFilledIcon /> : <HeartOutlineIcon />}
-          {post.likes_count}
-        </LikeBtn>
-        <CommentBtn
-          type="button"
-          active={commentsOpen}
-          onClick={() => setCommentsOpen((v) => !v)}
-          title={commentsOpen ? '댓글 닫기' : '댓글 보기'}
-          aria-label="댓글"
-          aria-expanded={commentsOpen}
-        >
-          <ChatIcon />
-          {totalComments}
-        </CommentBtn>
-        <CopyBtn
-          onClick={downloadCurrentImage}
-          type="button"
-          title="이미지 다운로드"
-          aria-label="이미지 다운로드"
-        >
-          <DownloadIcon /> {post.download_count ?? 0}
-        </CopyBtn>
-        <CopyBtn onClick={copyPanelContent} type="button" title="내용 복사">
-          <ClipboardIcon /> 복사
-        </CopyBtn>
-        {canEditPost && onUpdatePost && (
-          <EditBtn
-            type="button"
-            onClick={() => {
-              setEditTitle(post.title);
-              setEditDesc(post.description ?? '');
-              setEditTags((post.tags ?? []).join(', '));
-              setEditing(true);
-            }}
-            title="수정"
-          >
-            <PencilIcon /> 수정
-          </EditBtn>
-        )}
-        {canDeletePost && onDeletePost && (
-          <DeleteBtn
-            type="button"
-            onClick={async () => {
-              if (!confirm('이 게시물을 삭제할까요? 되돌릴 수 없어요.')) return;
-              try {
-                await onDeletePost(post.id);
-                if (posts.length <= 1) onClose();
-              } catch (e) {
-                showToast((e as Error).message ?? '삭제 실패', 'error');
+      <CommentList id="viewer-comments-list">
+        {threads.length === 0 ? (
+          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 12, padding: '32px 0' }}>
+            아직 댓글이 없어요. 첫 댓글을 남겨보세요!
+          </div>
+        ) : (
+          threads.map((th) => (
+            <CommentThread
+              key={th.id}
+              thread={th}
+              currentUserId={currentUserId ?? null}
+              isAdmin={!!isAdmin}
+              editingId={editingCommentId}
+              editingDraft={editingDraft}
+              likedCommentIds={likedCommentIds ?? new Set()}
+              onStartEdit={(c) => {
+                setEditingCommentId(c.id);
+                setEditingDraft(c.content);
+              }}
+              onCancelEdit={() => {
+                setEditingCommentId(null);
+                setEditingDraft('');
+              }}
+              onChangeEdit={setEditingDraft}
+              onSaveEdit={async (c) => {
+                if (!editingDraft.trim()) return;
+                try {
+                  await updateComment.mutateAsync({
+                    commentId: c.id,
+                    postId: post.id,
+                    content: editingDraft,
+                  });
+                  setEditingCommentId(null);
+                  setEditingDraft('');
+                } catch (e) {
+                  showToast((e as Error).message ?? '수정 실패', 'error');
+                }
+              }}
+              onDelete={async (c, asAdmin) => {
+                if (!confirm('댓글을 삭제할까요?')) return;
+                try {
+                  await deleteComment.mutateAsync({
+                    commentId: c.id,
+                    postId: post.id,
+                    asAdmin,
+                  });
+                } catch (e) {
+                  showToast((e as Error).message ?? '삭제 실패', 'error');
+                }
+              }}
+              onReply={(c) =>
+                setReplyTo({ id: c.id, nickname: c.author_nickname ?? '작가' })
               }
-            }}
-            title="삭제"
-          >
-            <TrashIcon /> 삭제
-          </DeleteBtn>
+              onToggleLike={(c) => {
+                if (!currentUserId) {
+                  showToast('좋아요는 로그인 후에 가능해요', 'error');
+                  return;
+                }
+                toggleCommentLike
+                  .mutateAsync({ commentId: c.id, postId: post.id })
+                  .catch((e) => {
+                    showToast((e as Error).message ?? '실패', 'error');
+                  });
+              }}
+            />
+          ))
         )}
-      </BottomBar>
+      </CommentList>
+
+      <CommentCompose
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!composeText.trim() || createComment.isPending) return;
+          if (!currentUserId) {
+            showToast('댓글을 달려면 팀에 들어와주세요', 'error');
+            return;
+          }
+          try {
+            await createComment.mutateAsync({
+              postId: post.id,
+              content: composeText,
+              parentId: replyTo?.id ?? null,
+            });
+            setComposeText('');
+            setReplyTo(null);
+          } catch (err) {
+            showToast((err as Error).message ?? '댓글 작성 실패', 'error');
+          }
+        }}
+      >
+        {replyTo && (
+          <span className="replying">
+            ↳ {replyTo.nickname}에게 답글
+            <button type="button" onClick={() => setReplyTo(null)} aria-label="답글 취소">
+              ✕
+            </button>
+          </span>
+        )}
+        <textarea
+          value={composeText}
+          onChange={(e) => setComposeText(e.target.value)}
+          onKeyDown={(e) => {
+            if (
+              e.key === 'Enter' &&
+              !e.shiftKey &&
+              !e.nativeEvent.isComposing
+            ) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+          placeholder={
+            currentUserId
+              ? '댓글을 입력하세요… (Enter로 등록, Shift+Enter는 줄바꿈)'
+              : '댓글을 달려면 팀에 들어와주세요'
+          }
+          disabled={!currentUserId || createComment.isPending}
+          maxLength={1000}
+        />
+        <div className="row">
+          <span>{composeText.length}/1000</span>
+          <button
+            type="submit"
+            className="send"
+            disabled={
+              !currentUserId ||
+              !composeText.trim() ||
+              createComment.isPending
+            }
+          >
+            {createComment.isPending ? '작성 중…' : replyTo ? '답글 달기' : '댓글 달기'}
+          </button>
+        </div>
+      </CommentCompose>
+    </>
+  );
+
+  // Edit-post launcher button shared between both layouts.
+  const onOpenEdit = () => {
+    setEditTitle(post.title);
+    setEditDesc(post.description ?? '');
+    setEditTags((post.tags ?? []).join(', '));
+    setEditing(true);
+  };
+
+  // Delete-post handler shared between both layouts.
+  const onDeleteCurrent = async () => {
+    if (!onDeletePost) return;
+    if (!confirm('이 게시물을 삭제할까요? 되돌릴 수 없어요.')) return;
+    try {
+      await onDeletePost(post.id);
+      if (posts.length <= 1) onClose();
+    } catch (e) {
+      showToast((e as Error).message ?? '삭제 실패', 'error');
+    }
+  };
+
+  return (
+    <Overlay role="dialog" aria-modal bg={stageBg}>
+      {isMobile ? (
+        /* ── Mobile shell ────────────────────────────────────────── */
+        <MobileShell>
+          <MobileTopBar>
+            <MobileIconBtn onClick={onClose} aria-label="갤러리로 돌아가기" title="홈(갤러리)으로 돌아가기">
+              <HomeIcon />
+            </MobileIconBtn>
+            <span style={{ fontSize: 11, color: 'rgba(26,23,20,0.6)', fontVariantNumeric: 'tabular-nums' }}>
+              {index + 1} / {posts.length}
+            </span>
+            <MobileIconBtn
+              onClick={() => setSheetOpen((v) => !v)}
+              aria-label={sheetOpen ? '정보 닫기' : '정보 열기'}
+              aria-expanded={sheetOpen}
+            >
+              정보 {sheetOpen ? '▲' : '▼'}
+            </MobileIconBtn>
+          </MobileTopBar>
+
+          <MobileImageRegion
+            onTouchStart={imageZoomed ? undefined : handleTouchStart}
+            onTouchEnd={imageZoomed ? undefined : handleTouchEnd}
+          >
+            {renderedMobileMedia}
+            {imageBundle.length > 1 && (
+              <MobileThumbStrip>{thumbChildren}</MobileThumbStrip>
+            )}
+          </MobileImageRegion>
+
+          <MobileActionBar>
+            <div className="group">
+              <MobileActionBtn
+                active={isLiked}
+                onClick={handleTogglePostLike}
+                aria-pressed={isLiked}
+                aria-label="좋아요"
+                title={isLiked ? '좋아요 취소' : '좋아요'}
+              >
+                {isLiked ? <HeartFilledIcon /> : <HeartOutlineIcon />}
+                {post.likes_count}
+              </MobileActionBtn>
+              <MobileActionBtn
+                onClick={() => setSheetOpen((v) => !v)}
+                aria-label="댓글"
+                aria-pressed={sheetOpen}
+                title="댓글 보기"
+              >
+                <ChatIcon />
+                {totalComments}
+              </MobileActionBtn>
+              <MobileActionBtn
+                onClick={downloadCurrentImage}
+                aria-label="이미지 다운로드"
+                title="이미지 다운로드"
+              >
+                <DownloadIcon />
+                {post.download_count ?? 0}
+              </MobileActionBtn>
+              <MobileActionBtn
+                onClick={copyPanelContent}
+                aria-label="제목·태그·설명 복사"
+                title="제목·태그·설명 복사"
+              >
+                <ClipboardIcon />
+              </MobileActionBtn>
+              {canEditPost && onUpdatePost && (
+                <MobileActionBtn onClick={onOpenEdit} aria-label="게시물 수정" title="게시물 수정">
+                  <PencilIcon />
+                </MobileActionBtn>
+              )}
+              {canDeletePost && onDeletePost && (
+                <MobileActionBtn
+                  onClick={onDeleteCurrent}
+                  aria-label="게시물 삭제"
+                  title="게시물 삭제"
+                  style={{ color: '#fca5a5' }}
+                >
+                  <TrashIcon />
+                </MobileActionBtn>
+              )}
+            </div>
+            <span className="idx">{index + 1} / {posts.length}</span>
+          </MobileActionBar>
+
+          {sheetOpen && (
+            <>
+              <MobileSheetBackdrop onClick={() => setSheetOpen(false)} aria-label="시트 닫기" />
+              <MobileSheet role="dialog" aria-label="게시물 정보 및 댓글">
+                <MobileSheetHandle />
+                <div style={{ padding: '4px 16px 8px' }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.95)' }}>
+                    {post.title}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>
+                    {post.team_name ? `${post.team_name} · ` : ''}
+                    {post.author_nickname ?? '작가 미상'}
+                  </div>
+                </div>
+                {panelContent}
+              </MobileSheet>
+            </>
+          )}
+        </MobileShell>
+      ) : (
+        /* ── Desktop grid shell ──────────────────────────────────── */
+        <DesktopGrid panelOpen={panelOpen}>
+          <TopBar>
+            <RoundBtn
+              onClick={onClose}
+              aria-label="갤러리로 돌아가기"
+              title="홈(갤러리)으로 돌아가기 (Esc)"
+              style={{ flexShrink: 0 }}
+            >
+              <HomeIcon />
+            </RoundBtn>
+            <HeaderColumn>
+              <HeaderTitle>{post.title}</HeaderTitle>
+              <HeaderSubMeta>
+                {post.team_name && <span className="team">{post.team_name}</span>}
+                {post.team_name && <span className="sep">·</span>}
+                <span className="author">
+                  <MiniAvatar>{initial}</MiniAvatar>
+                  {post.author_nickname ?? '작가 미상'}
+                </span>
+              </HeaderSubMeta>
+            </HeaderColumn>
+            <HeaderTopRight>
+              <RoundBtn onClick={onClose} aria-label="뷰어 닫기" title="닫기 (Esc)">
+                <CloseIcon />
+              </RoundBtn>
+            </HeaderTopRight>
+          </TopBar>
+
+          <Stage>
+            <ImageColumn>
+              <MediaCard>{renderedMedia}</MediaCard>
+            </ImageColumn>
+
+            <PageIndex aria-live="polite">
+              {index + 1} / {posts.length}
+            </PageIndex>
+
+            {imageBundle.length > 1 && (
+              <ThumbStrip>{thumbChildren}</ThumbStrip>
+            )}
+
+            {/* Caption overlay is always rendered so the title doubles as
+             *  the panel toggle in both directions — click to open
+             *  when the panel is closed, click again to close it. Action
+             *  buttons collapse to nothing when the panel is open since
+             *  the panel itself carries the same row. */}
+            <FullscreenCaptionOverlay>
+              <button
+                type="button"
+                className="meta"
+                onClick={() => setPanelOpen((v) => !v)}
+                aria-label={panelOpen ? '패널 닫기' : '패널 열기'}
+                aria-expanded={panelOpen}
+                title={panelOpen ? '제목을 다시 클릭하면 패널이 닫혀요' : '제목을 클릭하면 패널이 열려요'}
+              >
+                <div className="meta-title">{post.title}</div>
+                <div className="meta-author">
+                  {post.team_name ? `${post.team_name} · ` : ''}
+                  {post.author_nickname ?? '작가 미상'}
+                </div>
+              </button>
+              {!panelOpen && (
+                <div className="actions">
+                  <OverlayActionBtn
+                    active={isLiked}
+                    onClick={handleTogglePostLike}
+                    aria-pressed={isLiked}
+                    aria-label="좋아요"
+                    title={isLiked ? '좋아요 취소' : '좋아요'}
+                  >
+                    {isLiked ? <HeartFilledIcon /> : <HeartOutlineIcon />}
+                    {post.likes_count}
+                  </OverlayActionBtn>
+                  <OverlayActionBtn
+                    onClick={() => setPanelOpen(true)}
+                    aria-label="댓글 보기"
+                    title="댓글 보기"
+                  >
+                    <ChatIcon />
+                    {totalComments}
+                  </OverlayActionBtn>
+                  <OverlayActionBtn
+                    onClick={downloadCurrentImage}
+                    aria-label="이미지 다운로드"
+                    title="이미지 다운로드"
+                  >
+                    <DownloadIcon />
+                    {post.download_count ?? 0}
+                  </OverlayActionBtn>
+                  <OverlayActionBtn
+                    onClick={copyPanelContent}
+                    aria-label="제목·태그·설명 복사"
+                    title="제목·태그·설명 복사"
+                  >
+                    <ClipboardIcon />
+                  </OverlayActionBtn>
+                </div>
+              )}
+            </FullscreenCaptionOverlay>
+          </Stage>
+
+          <CommentPanel id="viewer-comment-panel" aria-hidden={!panelOpen}>
+            {/* Desktop action row at the top of the side panel. Mirrors the
+             *  spec's section 4-2 order: like / download / copy / edit /
+             *  delete. Slim padding so the comment list dominates. */}
+            <div
+              style={{
+                display: 'flex',
+                gap: 4,
+                flexWrap: 'wrap',
+                padding: '12px 14px 8px',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                flexShrink: 0,
+              }}
+            >
+              <OverlayActionBtn
+                active={isLiked}
+                onClick={handleTogglePostLike}
+                aria-pressed={isLiked}
+                aria-label="좋아요"
+                title={isLiked ? '좋아요 취소' : '좋아요'}
+                style={{ minWidth: 0, padding: '0 10px', height: 36, minHeight: 36 }}
+              >
+                {isLiked ? <HeartFilledIcon /> : <HeartOutlineIcon />}
+                {post.likes_count}
+              </OverlayActionBtn>
+              <OverlayActionBtn
+                onClick={downloadCurrentImage}
+                aria-label="이미지 다운로드"
+                title="이미지 다운로드"
+                style={{ minWidth: 0, padding: '0 10px', height: 36, minHeight: 36 }}
+              >
+                <DownloadIcon />
+                {post.download_count ?? 0}
+              </OverlayActionBtn>
+              <OverlayActionBtn
+                onClick={copyPanelContent}
+                aria-label="제목·태그·설명 복사"
+                title="제목·태그·설명 복사"
+                style={{ minWidth: 0, padding: '0 10px', height: 36, minHeight: 36 }}
+              >
+                <ClipboardIcon />
+              </OverlayActionBtn>
+              {canEditPost && onUpdatePost && (
+                <OverlayActionBtn
+                  onClick={onOpenEdit}
+                  aria-label="게시물 수정"
+                  title="게시물 수정"
+                  style={{ minWidth: 0, padding: '0 10px', height: 36, minHeight: 36 }}
+                >
+                  <PencilIcon />
+                </OverlayActionBtn>
+              )}
+              {canDeletePost && onDeletePost && (
+                <OverlayActionBtn
+                  onClick={onDeleteCurrent}
+                  aria-label="게시물 삭제"
+                  title="게시물 삭제"
+                  style={{
+                    minWidth: 0,
+                    padding: '0 10px',
+                    height: 36,
+                    minHeight: 36,
+                    background: 'rgba(220, 38, 38, 0.18)',
+                    color: '#fca5a5',
+                  }}
+                >
+                  <TrashIcon />
+                </OverlayActionBtn>
+              )}
+            </div>
+            {panelContent}
+          </CommentPanel>
+
+          {/* Corner nav arrows live OUTSIDE the Stage cell so their
+           *  position is anchored to the full-viewport DesktopGrid, not
+           *  to the Stage grid column. This means the on-screen
+           *  position never shifts with the current photo's aspect
+           *  ratio — only the right arrow gently slides left when the
+           *  side panel opens (via the panelOpen prop's `right` offset).
+           */}
+          <CornerNavBtn
+            type="button"
+            dir="left"
+            panelOpen={panelOpen}
+            onClick={() => index > 0 && onIndexChange(index - 1)}
+            disabled={index === 0}
+            aria-label="이전 게시물"
+            title="이전 게시물"
+          >
+            ←
+          </CornerNavBtn>
+          <CornerNavBtn
+            type="button"
+            dir="right"
+            panelOpen={panelOpen}
+            onClick={() => index < posts.length - 1 && onIndexChange(index + 1)}
+            disabled={index === posts.length - 1}
+            aria-label="다음 게시물"
+            title="다음 게시물"
+          >
+            →
+          </CornerNavBtn>
+
+          {/* Drawer-pull tab handle hugging the side panel's left edge.
+           *  Half-attached to the panel, half-protruding into the stage,
+           *  so it reads as a tab/handle rather than a centered button. */}
+          <PanelToggleButton
+            type="button"
+            panelOpen={panelOpen}
+            onClick={() => setPanelOpen((v) => !v)}
+            aria-label={panelOpen ? '패널 닫기' : '패널 열기'}
+            aria-expanded={panelOpen}
+            title={panelOpen ? '패널 닫기' : '패널 열기'}
+          >
+            {panelOpen ? '❯' : '❮'}
+          </PanelToggleButton>
+        </DesktopGrid>
+      )}
 
       {editing && onUpdatePost && (
         <EditBackdrop onClick={(e) => e.target === e.currentTarget && setEditing(false)}>
@@ -1740,212 +2351,6 @@ export function Viewer({
         </EditBackdrop>
       )}
 
-      {/* Close-only handle on the panel's left edge. We don't render an
-       *  open variant because the panel is already reachable from the
-       *  BottomBar 💬 button and from any "더보기" link in the on-image
-       *  InfoPanel — a separate viewport-edge open button just adds
-       *  visual noise to a closed viewer. */}
-      {commentsOpen && (
-        <PanelCollapseHandle
-          type="button"
-          open={commentsOpen}
-          onClick={() => setCommentsOpen(false)}
-          aria-label="패널 접기"
-          title="패널 접기"
-          aria-expanded={commentsOpen}
-          aria-controls="viewer-comment-panel"
-        >
-          ▶
-        </PanelCollapseHandle>
-      )}
-      <CommentPanel id="viewer-comment-panel" open={commentsOpen} aria-hidden={!commentsOpen}>
-        {hasBody && post.description && post.description.length > PANEL_DESC_TRUNCATE && (
-          <DetailsToggle
-            type="button"
-            onClick={() => setDetailsExpanded((v) => !v)}
-            aria-expanded={detailsExpanded}
-            aria-controls="viewer-details-panel"
-            aria-label={detailsExpanded ? '내용 접기' : '내용 펼치기'}
-            title={detailsExpanded ? '내용 접기' : '내용 펼치기'}
-          >
-            {/* Two distinct glyphs (no rotate transform) so the arrow is
-             *  always upright. ▴ = currently expanded, click to collapse. */}
-            {detailsExpanded ? '▴' : '▾'}
-          </DetailsToggle>
-        )}
-        {hasBody && (
-          <SidebarDetails id="viewer-details-panel" aria-label="게시물 상세 내용">
-            {post.tip_text && <div className="tip">💡 {post.tip_text}</div>}
-            {post.description && (
-              detailsExpanded || post.description.length <= PANEL_DESC_TRUNCATE ? (
-                <p className="desc">{post.description}</p>
-              ) : (
-                <p className="desc">
-                  {post.description.slice(0, PANEL_DESC_TRUNCATE).trimEnd()}…{' '}
-                  <InlineMoreBtn
-                    type="button"
-                    onClick={() => setDetailsExpanded(true)}
-                  >
-                    더보기
-                  </InlineMoreBtn>
-                </p>
-              )
-            )}
-            {post.tags && post.tags.length > 0 && (
-              <div className="tags">
-                {post.tags.map((tag) => (
-                  <span key={tag} className="tag">#{tag}</span>
-                ))}
-              </div>
-            )}
-          </SidebarDetails>
-        )}
-
-        <CommentHeader>
-          <h2>
-            댓글<span className="count">{totalComments}</span>
-          </h2>
-        </CommentHeader>
-
-        <CommentList id="viewer-comments-list">
-          {threads.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 12, padding: '32px 0' }}>
-              아직 댓글이 없어요. 첫 댓글을 남겨보세요!
-            </div>
-          ) : (
-            threads.map((t) => (
-              <CommentThread
-                key={t.id}
-                thread={t}
-                currentUserId={currentUserId ?? null}
-                isAdmin={!!isAdmin}
-                editingId={editingCommentId}
-                editingDraft={editingDraft}
-                likedCommentIds={likedCommentIds ?? new Set()}
-                onStartEdit={(c) => {
-                  setEditingCommentId(c.id);
-                  setEditingDraft(c.content);
-                }}
-                onCancelEdit={() => {
-                  setEditingCommentId(null);
-                  setEditingDraft('');
-                }}
-                onChangeEdit={setEditingDraft}
-                onSaveEdit={async (c) => {
-                  if (!editingDraft.trim()) return;
-                  try {
-                    await updateComment.mutateAsync({
-                      commentId: c.id,
-                      postId: post.id,
-                      content: editingDraft,
-                    });
-                    setEditingCommentId(null);
-                    setEditingDraft('');
-                  } catch (e) {
-                    showToast((e as Error).message ?? '수정 실패', 'error');
-                  }
-                }}
-                onDelete={async (c, asAdmin) => {
-                  if (!confirm('댓글을 삭제할까요?')) return;
-                  try {
-                    await deleteComment.mutateAsync({
-                      commentId: c.id,
-                      postId: post.id,
-                      asAdmin,
-                    });
-                  } catch (e) {
-                    showToast((e as Error).message ?? '삭제 실패', 'error');
-                  }
-                }}
-                onReply={(c) =>
-                  setReplyTo({ id: c.id, nickname: c.author_nickname ?? '작가' })
-                }
-                onToggleLike={(c) => {
-                  if (!currentUserId) {
-                    showToast('좋아요는 로그인 후에 가능해요', 'error');
-                    return;
-                  }
-                  toggleCommentLike
-                    .mutateAsync({ commentId: c.id, postId: post.id })
-                    .catch((e) => {
-                      showToast((e as Error).message ?? '실패', 'error');
-                    });
-                }}
-              />
-            ))
-          )}
-        </CommentList>
-
-        <CommentCompose
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!composeText.trim() || createComment.isPending) return;
-            if (!currentUserId) {
-              showToast('댓글을 달려면 팀에 들어와주세요', 'error');
-              return;
-            }
-            try {
-              await createComment.mutateAsync({
-                postId: post.id,
-                content: composeText,
-                parentId: replyTo?.id ?? null,
-              });
-              setComposeText('');
-              setReplyTo(null);
-            } catch (err) {
-              showToast((err as Error).message ?? '댓글 작성 실패', 'error');
-            }
-          }}
-        >
-          {replyTo && (
-            <span className="replying">
-              ↳ {replyTo.nickname}에게 답글
-              <button type="button" onClick={() => setReplyTo(null)} aria-label="답글 취소">
-                ✕
-              </button>
-            </span>
-          )}
-          <textarea
-            value={composeText}
-            onChange={(e) => setComposeText(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter submits, Shift+Enter (or IME composition) keeps the
-              // newline. `isComposing` guards against accidental submit while
-              // the user is still finishing a Korean character.
-              if (
-                e.key === 'Enter' &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing
-              ) {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
-              }
-            }}
-            placeholder={
-              currentUserId
-                ? '댓글을 입력하세요… (Enter로 등록, Shift+Enter는 줄바꿈)'
-                : '댓글을 달려면 팀에 들어와주세요'
-            }
-            disabled={!currentUserId || createComment.isPending}
-            maxLength={1000}
-          />
-          <div className="row">
-            <span>{composeText.length}/1000</span>
-            <button
-              type="submit"
-              className="send"
-              disabled={
-                !currentUserId ||
-                !composeText.trim() ||
-                createComment.isPending
-              }
-            >
-              {createComment.isPending ? '작성 중…' : replyTo ? '답글 달기' : '댓글 달기'}
-            </button>
-          </div>
-        </CommentCompose>
-      </CommentPanel>
-
       {imageZoomed && !currentIsPdf && currentImageUrl && (
         <>
           <ZoomOverlay
@@ -1958,7 +2363,14 @@ export function Viewer({
              *  the way Behance's lightbox treats the image as a single
              *  toggle target. Nav arrows below stop propagation so they
              *  page through posts without dismissing the lightbox. */}
-            <ZoomedImg src={currentImageUrl} alt={post.title} />
+            <ZoomedImg
+              src={currentImageUrl}
+              alt={post.title}
+              loading="eager"
+              decoding="async"
+              // @ts-expect-error — fetchPriority is valid HTML but missing from React's type defs
+              fetchpriority="high"
+            />
           </ZoomOverlay>
           {index > 0 && (
             <ZoomNavBtn
@@ -2139,11 +2551,17 @@ function CommentThread({
         )}
         {!editing && (
           <div className="actions">
+            {/*
+             * Like button stays clickable even when the user is signed
+             * out — disabling it would suppress the click, and the
+             * parent's onToggleLike already shows a friendly "로그인 후
+             * 가능" toast on no-auth. Disabled-button-with-tooltip read
+             * as "comment like isn't implemented" in user testing.
+             */}
             <button
               type="button"
               className={likedCommentIds.has(c.id) ? 'liked' : ''}
               onClick={() => onToggleLike(c)}
-              disabled={!currentUserId}
               title={
                 !currentUserId
                   ? '좋아요는 로그인 후에 가능해요'

@@ -47,25 +47,48 @@ export function usePostComments(postId: string | undefined) {
       const raw = (rows ?? []) as Omit<CommentRow, 'author_nickname'>[];
       if (raw.length === 0) return [];
 
-      // Resolve nicknames via team_members keyed on (post.team_id, author_id).
-      const { data: postRow } = await supabase
-        .from('posts')
-        .select('team_id')
-        .eq('id', postId)
-        .maybeSingle();
-      const teamId = (postRow as { team_id?: string } | null)?.team_id;
-
+      // Resolve nicknames via the public `profiles` table — keyed on
+      // auth.uid() directly so cross-team comments still get a name.
+      // We used to look up via `team_members` scoped to the post's
+      // team_id, but that left commenters who were a member of a
+      // different team rendered as "익명". Profiles is RLS-public-read
+      // and the single source of truth for the display nickname (see
+      // `join_team_with_invite` where the row is upserted on join).
       const authorIds = Array.from(new Set(raw.map((r) => r.author_id)));
       const nicknameMap = new Map<string, string>();
-      if (teamId && authorIds.length > 0) {
-        const { data: members } = await supabase
-          .from('team_members')
-          .select('user_id, nickname')
-          .eq('team_id', teamId)
-          .in('user_id', authorIds);
-        for (const m of members ?? []) {
-          const row = m as { user_id: string; nickname: string };
-          nicknameMap.set(row.user_id, row.nickname);
+      if (authorIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, nickname')
+          .in('id', authorIds);
+        for (const p of profiles ?? []) {
+          const row = p as { id: string; nickname: string | null };
+          if (row.nickname) nicknameMap.set(row.id, row.nickname);
+        }
+      }
+      // Fallback to the post-team's team_members for users who have a
+      // membership row but no profile row (legacy users created before
+      // profiles became the canonical source).
+      if (nicknameMap.size < authorIds.length) {
+        const { data: postRow } = await supabase
+          .from('posts')
+          .select('team_id')
+          .eq('id', postId)
+          .maybeSingle();
+        const teamId = (postRow as { team_id?: string } | null)?.team_id;
+        if (teamId) {
+          const missing = authorIds.filter((id) => !nicknameMap.has(id));
+          if (missing.length > 0) {
+            const { data: members } = await supabase
+              .from('team_members')
+              .select('user_id, nickname')
+              .eq('team_id', teamId)
+              .in('user_id', missing);
+            for (const m of members ?? []) {
+              const row = m as { user_id: string; nickname: string };
+              nicknameMap.set(row.user_id, row.nickname);
+            }
+          }
         }
       }
       const enriched: CommentRow[] = raw.map((r) => ({
