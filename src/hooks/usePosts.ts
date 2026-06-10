@@ -122,6 +122,50 @@ export function useAllVisiblePosts() {
   });
 }
 
+/**
+ * Admin-curated featured posts for the home page's "메인 추천" section.
+ * Reads the partial-indexed `is_featured` rows newest-pinned first. Visible
+ * to everyone (RLS still hides team-only posts the caller can't see).
+ */
+export function useFeaturedPosts() {
+  return useQuery({
+    queryKey: ['posts', 'featured'],
+    queryFn: async (): Promise<PostWithAuthor[]> => {
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('is_featured', true)
+        .order('featured_at', { ascending: false });
+      if (error) throw error;
+      return withAuthorNicknames(data ?? []);
+    },
+  });
+}
+
+/**
+ * Pin / unpin a post to the home-page featured section via the
+ * `set_post_featured` RPC. Server-side enforces a valid admin code
+ * (read from localStorage), mirroring update_post / delete_post.
+ */
+export function useSetPostFeatured() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { postId: string; featured: boolean }): Promise<Post> => {
+      const adminCode = localStorage.getItem('plc-admin-code') || undefined;
+      const { data, error } = await supabase.rpc('set_post_featured', {
+        p_post_id: input.postId,
+        p_featured: input.featured,
+        p_admin_code: adminCode ?? null,
+      });
+      if (error) throw error;
+      return data as Post;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['posts'] });
+    },
+  });
+}
+
 export function useTeamPosts(teamId: string | undefined) {
   return useQuery({
     queryKey: ['posts', 'team', teamId],

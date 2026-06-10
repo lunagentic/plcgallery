@@ -57,6 +57,7 @@ export const en = {
     totalPrefix: '',
     totalSuffix: ' moodboards total',
     more: 'See more →',
+    featured: 'Editor’s Picks',
   },
   filter: {
     all: 'All',

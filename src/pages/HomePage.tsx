@@ -6,12 +6,15 @@ import { useMoodboards } from '@/hooks/useMoodboards';
 import {
   useAllVisiblePosts,
   usePostsByCategory,
+  useFeaturedPosts,
   useTogglePostLike,
   useDeletePost,
   useUpdatePost,
+  useSetPostFeatured,
   useMyLikedPostIds,
   type PostWithAuthor,
 } from '@/hooks/usePosts';
+import { useUIStore } from '@/store/uiStore';
 import { PostTile } from '@/components/PostTile';
 import { Viewer } from '@/components/Viewer';
 import { Button } from '@/components/ui/Button';
@@ -119,6 +122,15 @@ const Section = styled.section`
   }
 `;
 
+/** Admin-curated highlights, pinned above the category sections. Rendered
+ *  without a heading — the picks surface as a clean band at the top of the
+ *  feed, with just a divider separating them from the category sections. */
+const FeaturedSection = styled.section`
+  padding: 8px 0 28px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid ${({ theme }) => theme.border};
+`;
+
 const SectionHeader = styled.div`
   display: flex;
   align-items: baseline;
@@ -219,6 +231,7 @@ export default function HomePage() {
   const [viewer, setViewer] = useState<
     { source: 'category-section'; cat: MoodboardCategory; idx: number }
     | { source: 'category-filter'; idx: number }
+    | { source: 'featured'; idx: number }
     | null
   >(null);
 
@@ -229,7 +242,10 @@ export default function HomePage() {
   const toggleLike = useTogglePostLike();
   const deletePost = useDeletePost();
   const updatePost = useUpdatePost();
+  const setFeatured = useSetPostFeatured();
+  const showToast = useUIStore((s) => s.showToast);
   const { data: likedPostIds } = useMyLikedPostIds();
+  const { data: featuredPosts = [] } = useFeaturedPosts();
 
   const moodboardMetaById = useMemo(() => {
     const map: Record<
@@ -294,6 +310,22 @@ export default function HomePage() {
         authorColor={p.team_color ?? undefined}
         onTeamClick={isOwnTeam ? () => navigate('/teamboard') : undefined}
         onToggleLike={(id) => toggleLike.mutate(id)}
+        isAdmin={isAdmin}
+        featured={p.is_featured}
+        featurePending={setFeatured.isPending}
+        onToggleFeatured={
+          isAdmin
+            ? (id, next) =>
+                setFeatured
+                  .mutateAsync({ postId: id, featured: next })
+                  .then(() =>
+                    showToast(next ? '메인에 노출했어요' : '메인에서 내렸어요'),
+                  )
+                  .catch((e) =>
+                    showToast((e as Error).message ?? '처리 실패', 'error'),
+                  )
+            : undefined
+        }
       />
     );
   };
@@ -304,7 +336,9 @@ export default function HomePage() {
     ? []
     : viewer.source === 'category-section'
       ? postsByCategory[viewer.cat] ?? []
-      : categoryPosts;
+      : viewer.source === 'featured'
+        ? featuredPosts
+        : categoryPosts;
 
   return (
     <Page>
@@ -350,6 +384,20 @@ export default function HomePage() {
           </Empty>
         ) : filter === 'all' ? (
           <>
+            {/* Admin-curated highlights, pinned above the feed. The
+                "메인 추천" label is intentionally hidden — the picks just
+                surface at the top as a clean, unlabeled band. */}
+            {featuredPosts.length > 0 && (
+              <FeaturedSection>
+                <PostGrid>
+                  {featuredPosts.map((p, idx) =>
+                    renderTile(p, idx, () =>
+                      setViewer({ source: 'featured', idx }),
+                    ),
+                  )}
+                </PostGrid>
+              </FeaturedSection>
+            )}
             {MOODBOARD_CATEGORIES.map((cat) => {
               const items = postsByCategory[cat];
               if (!items || items.length === 0) return null;
