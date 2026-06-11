@@ -107,6 +107,10 @@ export interface Post {
   views_count: number;
   download_count: number;
   tags: string[];
+  /** Admin-curated highlight on the gallery main page. */
+  is_featured: boolean;
+  /** When an admin pinned this post; null when not featured. Orders the section. */
+  featured_at: string | null;
   created_at: string;
   updated_at: string;
 }

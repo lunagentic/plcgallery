@@ -5,6 +5,7 @@ import type { PostWithAuthor } from '@/hooks/usePosts';
 import { PdfThumbnail } from '@/components/PdfThumbnail';
 
 const Card = styled.div<{ delay: number }>`
+  position: relative;
   display: flex;
   flex-direction: column;
   text-align: left;
@@ -101,6 +102,41 @@ const BundleBadge = styled.span`
   pointer-events: none;
 `;
 
+
+/** Admin-only: pin / unpin this post to the home featured band. Sits at the
+ *  tile's top-left (BundleBadge owns top-right) and is always visible in admin
+ *  mode so the curation status reads at a glance. */
+const FeatureToggle = styled.button<{ active: boolean }>`
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  backdrop-filter: blur(6px);
+  border: 1px solid
+    ${({ active }) => (active ? 'rgba(217, 119, 6, 0.95)' : 'rgba(255, 255, 255, 0.6)')};
+  background: ${({ active }) =>
+    active ? 'rgba(217, 119, 6, 0.92)' : 'rgba(0, 0, 0, 0.55)'};
+  transition: transform 0.15s ease, background 0.15s ease;
+  &:hover {
+    transform: translateY(-1px);
+    background: ${({ active }) =>
+      active ? 'rgba(217, 119, 6, 1)' : 'rgba(0, 0, 0, 0.72)'};
+  }
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+    transform: none;
+  }
+`;
 
 const Footer = styled.div`
   padding: 10px 4px 4px;
@@ -202,6 +238,14 @@ interface Props {
   onToggleLike?: (postId: string) => void;
   /** Click on the team link; defaults to navigating to /teamboard. */
   onTeamClick?: () => void;
+  /** True when the viewer is in admin mode — reveals the feature toggle. */
+  isAdmin?: boolean;
+  /** Whether this post is currently featured on the home band. */
+  featured?: boolean;
+  /** Admin-only: toggle the post's featured state. Pass to render the button. */
+  onToggleFeatured?: (postId: string, next: boolean) => void;
+  /** Disables the feature toggle while a request is in flight. */
+  featurePending?: boolean;
 }
 
 export function PostTile({
@@ -214,6 +258,10 @@ export function PostTile({
   liked = false,
   onToggleLike,
   onTeamClick,
+  isAdmin,
+  featured,
+  onToggleFeatured,
+  featurePending,
 }: Props) {
   const stage = post.stage_bg ?? '#F2EFE9';
   const displayAuthor = authorName ?? post.author_nickname ?? '작가 미상';
@@ -231,6 +279,20 @@ export function PostTile({
 
   return (
     <Card delay={index * 40}>
+      {isAdmin && onToggleFeatured && (
+        <FeatureToggle
+          type="button"
+          active={!!featured}
+          disabled={featurePending}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFeatured(post.id, !featured);
+          }}
+          title={featured ? '메인에서 내리기' : '메인에 노출하기'}
+        >
+          {featured ? '★ 메인 노출 중' : '☆ 메인 노출'}
+        </FeatureToggle>
+      )}
       <Tile onClick={onClick} aria-label={post.title}>
         {coverIsPdf ? (
           <PdfThumbnail thumbUrl={url} alt={post.title} size="lg" />

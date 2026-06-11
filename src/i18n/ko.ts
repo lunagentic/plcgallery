@@ -57,6 +57,7 @@ export const ko = {
     totalPrefix: '총 ',
     totalSuffix: '개의 팀 보드',
     more: '더보기 →',
+    featured: '메인 추천',
   },
   filter: {
     all: '전체',
